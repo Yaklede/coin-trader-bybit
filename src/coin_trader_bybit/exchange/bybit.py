@@ -87,6 +87,25 @@ class BybitClient:
             order_id=order_id, raw=resp if isinstance(resp, dict) else {}
         )
 
+    def close_position_market(
+        self,
+        *,
+        symbol: str,
+        qty: float,
+        category: str = "linear",
+        reduce_only: bool = True,
+    ) -> OrderResult:
+        if qty == 0:
+            raise ValueError("qty must be non-zero when closing a position")
+        side = "Sell" if qty > 0 else "Buy"
+        return self.place_market_order(
+            symbol=symbol,
+            side=side,
+            qty=abs(qty),
+            category=category,
+            reduce_only=reduce_only,
+        )
+
     def get_kline(
         self,
         *,

@@ -69,3 +69,22 @@ def test_testnet_order_ignores_limit() -> None:
 
     assert res.order_id == "stub-123"
     assert fake_http.place_order_called is True
+
+
+def test_close_position_market_wraps_reduce_only() -> None:
+    client, fake_http = make_client(
+        price=1_000.0, max_limit=50_000.0, usdt_krw_rate=1_000.0, testnet=False
+    )
+
+    client.close_position_market(symbol="BTCUSDT", qty=3.0, reduce_only=True)
+
+    assert fake_http.place_order_called is True
+    assert fake_http.kwargs is not None
+    assert fake_http.kwargs.get("reduceOnly") is True
+    assert fake_http.kwargs.get("side") == "Sell"
+
+    client.close_position_market(symbol="BTCUSDT", qty=-2.0, reduce_only=False)
+
+    assert fake_http.kwargs is not None
+    assert fake_http.kwargs.get("reduceOnly") is False
+    assert fake_http.kwargs.get("side") == "Buy"

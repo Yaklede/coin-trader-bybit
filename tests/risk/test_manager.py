@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from coin_trader_bybit.core.config import AppConfig
 from coin_trader_bybit.risk.manager import PositionSnapshot, RiskManager
 
@@ -28,3 +30,31 @@ def test_risk_manager_cooldown_blocks_entry():
     )
     if not active:
         assert can_open_after
+
+
+def test_daily_stop_blocks_entries() -> None:
+    cfg = AppConfig()
+    cfg.risk.daily_stop_r_multiple = -2.0
+    rm = RiskManager(cfg)
+    snapshot = PositionSnapshot(qty=0.0, entry_price=0.0, mark_price=0.0)
+
+    assert rm.can_open_position(existing_position=snapshot, cooldown_active=False)
+
+    rm.record_realized_r(-2.5)
+
+    assert rm.daily_stop_active() is True
+    assert not rm.can_open_position(existing_position=snapshot, cooldown_active=False)
+
+
+def test_daily_stop_resets_each_day() -> None:
+    cfg = AppConfig()
+    cfg.risk.daily_stop_r_multiple = -1.0
+    rm = RiskManager(cfg)
+
+    rm.record_realized_r(-1.5)
+    assert rm.daily_stop_active() is True
+
+    rm._daily_snapshot_date = rm._daily_snapshot_date - timedelta(days=1)
+
+    assert rm.daily_stop_active() is False
+    assert rm.daily_r_total() == 0.0

@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
+import pytest
 
 from coin_trader_bybit.core.config import AppConfig
 from coin_trader_bybit.data.feed import KlineRecord, MemoryDataFeed
@@ -17,6 +18,23 @@ class DummyClient:
     def place_market_order(self, **kwargs):
         self.orders.append(kwargs)
         return OrderResult(order_id="test-order", raw={})
+
+    def close_position_market(
+        self,
+        *,
+        symbol: str,
+        qty: float,
+        category: str = "linear",
+        reduce_only: bool = True,
+    ):
+        side = "Sell" if qty > 0 else "Buy"
+        return self.place_market_order(
+            symbol=symbol,
+            side=side,
+            qty=abs(qty),
+            category=category,
+            reduce_only=reduce_only,
+        )
 
     def get_wallet_equity(self, *, coin: str = "USDT"):
         return 10_000.0
@@ -103,3 +121,78 @@ def test_trader_caps_qty_by_notional_limit():
     order = client.orders[0]
     # limit_usdt = 50, price close ~ >100 => qty should be < 1
     assert float(order["qty"]) < 1
+
+
+def test_trader_respects_daily_stop():
+    cfg = AppConfig()
+    cfg.execution.lookback_candles = 120
+    cfg.execution.min_qty = 0.0001
+    cfg.strategy.ema_fast = 5
+    cfg.strategy.ema_slow = 10
+    cfg.strategy.micro_high_lookback = 3
+    cfg.strategy.atr_period = 5
+    cfg.strategy.timeframe_entry = "1m"
+    cfg.strategy.volume_ma_period = 5
+    cfg.strategy.volume_threshold_ratio = 1.05
+
+    feed = MemoryDataFeed(_build_trend_records())
+    client = DummyClient()
+    risk_manager = RiskManager(cfg)
+
+    trader = Trader(
+        cfg, metrics=None, feed=feed, risk_manager=risk_manager, client=client
+    )
+
+    risk_manager.record_realized_r(-3.0)
+
+    trader.step()
+
+    assert not client.orders
+
+
+def test_trader_closes_position_on_stop():
+    cfg = AppConfig()
+    cfg.execution.lookback_candles = 120
+    cfg.execution.min_qty = 0.0001
+    cfg.strategy.ema_fast = 5
+    cfg.strategy.ema_slow = 10
+    cfg.strategy.micro_high_lookback = 3
+    cfg.strategy.atr_period = 5
+    cfg.strategy.timeframe_entry = "1m"
+    cfg.strategy.volume_ma_period = 5
+    cfg.strategy.volume_threshold_ratio = 1.05
+
+    feed = MemoryDataFeed(_build_trend_records())
+    client = DummyClient()
+    risk_manager = RiskManager(cfg)
+
+    trader = Trader(
+        cfg, metrics=None, feed=feed, risk_manager=risk_manager, client=client
+    )
+
+    trader.step()
+
+    assert len(client.orders) == 1
+    trade = trader.active_trade
+    assert trade is not None
+
+    stop_price = trade.stop_price
+    next_ts = feed.candles[-1].timestamp + timedelta(minutes=1)
+    feed.candles.append(
+        KlineRecord(
+            timestamp=pd.Timestamp(next_ts),
+            open=stop_price,
+            high=stop_price + 0.5,
+            low=stop_price - 5.0,
+            close=stop_price - 2.0,
+            volume=500.0,
+        )
+    )
+
+    trader.step()
+
+    assert len(client.orders) == 2
+    exit_order = client.orders[1]
+    assert exit_order.get("reduce_only") is True
+    assert exit_order.get("side") == "Sell"
+    assert pytest.approx(risk_manager.daily_r_total(), rel=1e-2) == -1.0
