@@ -5,7 +5,7 @@ risk:
   max_risk_per_trade_pct: 0.5
   daily_stop_r_multiple: -2.0
   cooldown_minutes: 3
-  max_live_order_notional_krw: 50000.0
+  max_live_order_notional_krw: 200000.0
   usdt_krw_rate: 1350.0
   starting_equity: 10000.0
 strategy:
