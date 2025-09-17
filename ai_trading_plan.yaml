@@ -1,0 +1,126 @@
+meta:
+  name: BTC Bybit Scalping Bot
+  created: '2025-09-15'
+  repo: coin-trader
+  language: python
+  runtime: Python 3.11
+  notes: Accept low win rate; aim for upward equity via positive R:R and strict risk
+    controls.
+objectives:
+- Automate scalping on Bybit USDT perpetuals (BTCUSDT).
+- Bias entries to the higher-timeframe uptrend to keep equity curve rising.
+- Small average loss, larger average win; positive skew over hit rate.
+constraints:
+- No martingale or averaging down.
+- "Risk \u2264 0.5% equity per trade; daily stop at \u22122R."
+- Latency-aware; handle rate limits and downtime gracefully.
+exchange:
+  venue: bybit
+  market: BTCUSDT Perpetual
+  environment: "testnet \u2192 mainnet"
+strategy:
+  regime: Trend-following scalps with positive skew.
+  timeframes:
+    entry:
+    - 15s
+    - 1m
+    anchor: 5m
+  entries: "Break micro\u2011highs with 5m EMA(50) > EMA(200); optional short in opposite\
+    \ regime."
+  exits: ATR trail, partial TP at 1R, time stop if no progress.
+  risk: "Size by ATR so 1R loss \u2264 0.5% equity."
+data:
+  streams:
+  - WebSocket trades/bookTicker
+  bars:
+  - 15s
+  - 1m
+  - 5m
+  storage: parquet/csv in ./data (gitignored)
+phases:
+- name: Environment & Keys
+  steps:
+  - id: env-1
+    task: Create venv and install deps
+    commands:
+    - python -m venv .venv && source .venv/bin/activate
+    - 'pip install -r requirements.txt  # or: poetry install'
+    status: completed
+    done_when: .venv exists; deps install without errors
+  - id: env-2
+    task: Add Bybit keys via .env
+    files:
+    - .env.example
+    - .env
+    status: completed
+    done_when: .env has BYBIT_API_KEY/BYBIT_API_SECRET (never commit)
+- name: Market Data
+  steps:
+  - id: data-1
+    task: Subscribe to BTCUSDT trades/bookTicker
+    status: pending
+    done_when: Tick stream writes timestamped records to local cache
+  - id: data-2
+    task: Build bar generator for 15s/1m/5m
+    status: pending
+    done_when: Rolling OHLCV saved to parquet
+- name: Strategy
+  steps:
+  - id: strat-1
+    task: "Signal: micro\u2011breakout aligned to 5m trend"
+    detail: Enter on 1m high breakout when 5m EMA(50)>EMA(200).
+    status: completed
+    done_when: Signal function returns entries/exits on sample data
+  - id: strat-2
+    task: Risk model & position sizing
+    detail: "ATR stop; 1R=ATR*k; position so 1R \u2264 0.5% equity"
+    status: completed
+  - id: strat-3
+    task: 'Exit logic: ATR trail + time stop + partial TP'
+    status: completed
+- name: Backtest & Evaluation
+  steps:
+  - id: bt-1
+    task: Vectorized backtest with fees/slippage
+    status: completed
+    done_when: "CAGR > 0, maxDD within limits, PF \u2265 1.2"
+  - id: bt-2
+    task: "Walk\u2011forward (monthly) and parameter sanity checks"
+    status: pending
+- name: Execution
+  steps:
+  - id: exec-1
+    task: Order router for Bybit (limit/market, reduceOnly, postOnly)
+    status: pending
+    done_when: "Dry\u2011run on testnet passes end\u2011to\u2011end"
+  - id: exec-2
+    task: 'Risk controls: daily stop, one position, cooldown 3m'
+    status: pending
+  - id: exec-3
+    task: Switch to mainnet with tiny size and monitor
+    status: pending
+- name: Monitoring & Ops
+  steps:
+  - id: ops-1
+    task: Structured logging + metrics (PnL, win rate, avg R, DD)
+    status: completed
+  - id: ops-2
+    task: Alerts to Slack/Telegram for fills and errors
+    status: pending
+metrics:
+  success:
+  - "30\u2011day equity curve slopes upward"
+  - "Average win \u2265 1.7\xD7 average loss"
+  - "Profit factor \u2265 1.2; hit rate may be < 45%"
+  - "No single\u2011day loss worse than \u22122R"
+safety:
+- Use Bybit testnet for all e2e checks before mainnet.
+- Always send reduceOnly on exits; validate position state.
+- Sync timestamps; respect rate limits; implement retries with jitter.
+directories:
+- src/coin_trader/
+- src/coin_trader/exchange/bybit.py
+- src/coin_trader/strategy/scalper.py
+- src/coin_trader/app.py
+- configs/params.yaml
+- tests/
