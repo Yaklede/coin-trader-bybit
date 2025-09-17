@@ -5,7 +5,7 @@ class RiskConfig(BaseModel):
     max_risk_per_trade_pct: float = 0.5
     daily_stop_r_multiple: float = -2.0
     cooldown_minutes: int = 3
-    max_live_order_notional_krw: float = 50_000.0
+    max_live_order_notional_krw: float = 200_000.0
     usdt_krw_rate: float = 1_350.0
     starting_equity: float = 10_000.0
 
