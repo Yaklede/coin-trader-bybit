@@ -49,6 +49,7 @@ class BacktestReport:
 class PositionState:
     entry_time: pd.Timestamp
     entry_price: float
+    entry_fill_price: float
     stop_price: float
     qty_total: float
     qty_open: float
@@ -56,6 +57,7 @@ class PositionState:
     partial_taken: bool
     realized_pnl: float
     bars_held: int
+    fees: float
 
 
 @dataclass
@@ -81,6 +83,8 @@ class Backtester:
         self.initial_equity = initial_equity
         self.contract_value = contract_value
         self.strategy = Scalper(cfg.strategy)
+        self.taker_fee_rate = cfg.execution.taker_fee_bps / 10_000.0
+        self.slippage_rate = cfg.execution.slippage_bps / 10_000.0
 
     def run(self, data: pd.DataFrame) -> BacktestReport:
         if not isinstance(data.index, pd.DatetimeIndex):
@@ -89,7 +93,7 @@ class Backtester:
             raise ValueError("data cannot be empty")
 
         features = self.strategy.compute_features(data)
-        features = features.dropna(subset=["atr", "micro_high"]).copy()
+        features = features.dropna(subset=["atr", "micro_high", "volume_ma"]).copy()
         if features.empty:
             raise ValueError("insufficient data after applying indicators")
 
@@ -106,7 +110,11 @@ class Backtester:
             if np.isnan(atr) or atr <= 0:
                 continue
 
-            if position is None and bool(row["long_breakout"]):
+            if (
+                position is None
+                and bool(row["long_breakout"])
+                and bool(row.get("volume_ok", False))
+            ):
                 position = self._try_open_long(timestamp, row, atr, equity, risk_cfg)
                 continue
 
@@ -156,9 +164,13 @@ class Backtester:
         if qty <= 0:
             return None
 
+        entry_fill_price = entry_price * (1 + self.slippage_rate)
+        entry_fee = entry_fill_price * qty * self.taker_fee_rate
+
         return PositionState(
             entry_time=timestamp,
             entry_price=entry_price,
+            entry_fill_price=entry_fill_price,
             stop_price=stop_price,
             qty_total=qty,
             qty_open=qty,
@@ -166,6 +178,7 @@ class Backtester:
             partial_taken=False,
             realized_pnl=0.0,
             bars_held=0,
+            fees=entry_fee,
         )
 
     def _manage_position(
@@ -204,7 +217,10 @@ class Backtester:
             )
             if high >= partial_target:
                 qty_half = qty_total * 0.5
-                pnl_partial = (partial_target - entry_price) * qty_half
+                partial_fill_price = partial_target * (1 - self.slippage_rate)
+                pnl_partial = (
+                    partial_fill_price - position.entry_fill_price
+                ) * qty_half
                 position.realized_pnl += pnl_partial
                 position.qty_open = qty_open - qty_half
                 position.partial_taken = True
@@ -212,6 +228,7 @@ class Backtester:
                 stop_price = max(stop_price, entry_price)
                 position.stop_price = stop_price
                 partial_taken = True
+                position.fees += partial_fill_price * qty_half * self.taker_fee_rate
                 if qty_open <= 0:
                     return ExitEvent(
                         exit_time=timestamp,
@@ -253,7 +270,7 @@ class Backtester:
         exit_event: ExitEvent,
         equity: float,
     ) -> tuple[BacktestTrade, float]:
-        entry_price = position.entry_price
+        entry_fill_price = position.entry_fill_price
         qty_total = position.qty_total
         qty_open = position.qty_open
         realized_pnl = position.realized_pnl
@@ -265,8 +282,10 @@ class Backtester:
         exit_reason = exit_event.exit_reason
         exit_time = exit_event.exit_time
 
-        pnl_remaining = (exit_price - entry_price) * qty_to_close
-        total_pnl = realized_pnl + pnl_remaining
+        exit_fill_price = exit_price * (1 - self.slippage_rate)
+        pnl_remaining = (exit_fill_price - entry_fill_price) * qty_to_close
+        position.fees += exit_fill_price * qty_to_close * self.taker_fee_rate
+        total_pnl = realized_pnl + pnl_remaining - position.fees
         qty_closed = qty_total - qty_open + qty_to_close
         pnl_r = 0.0
         if risk_per_unit > 0 and qty_total > 0:
@@ -276,8 +295,8 @@ class Backtester:
             entry_time=position.entry_time,
             exit_time=exit_time,
             side="Buy",
-            entry_price=entry_price,
-            exit_price=exit_price,
+            entry_price=entry_fill_price,
+            exit_price=exit_fill_price,
             qty=qty_closed,
             realized_r=pnl_r,
             pnl=total_pnl,

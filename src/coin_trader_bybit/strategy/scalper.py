@@ -61,7 +61,7 @@ class Scalper:
     def compute_features(self, data: pd.DataFrame) -> pd.DataFrame:
         if data.empty:
             raise ValueError("data must not be empty")
-        missing = {"open", "high", "low", "close"} - set(data.columns)
+        missing = {"open", "high", "low", "close", "volume"} - set(data.columns)
         if missing:
             raise ValueError(f"data missing required columns: {missing}")
 
@@ -79,6 +79,19 @@ class Scalper:
         rolling_high = df["high"].rolling(window=lookback, min_periods=1).max()
         df["micro_high"] = rolling_high.shift(1)
         df["long_breakout"] = (df["high"] > df["micro_high"]) & df["trend_up"]
+
+        volume_ma = (
+            df["volume"]
+            .rolling(
+                window=self.cfg.volume_ma_period,
+                min_periods=self.cfg.volume_ma_period,
+            )
+            .mean()
+        )
+        df["volume_ma"] = volume_ma
+        df["volume_ok"] = (
+            df["volume"] >= df["volume_ma"] * self.cfg.volume_threshold_ratio
+        )
         return df
 
     def generate_signal(self, features: pd.DataFrame) -> Optional[Signal]:
@@ -86,6 +99,8 @@ class Scalper:
             return None
         latest = features.iloc[-1]
         if not bool(latest.get("long_breakout", False)):
+            return None
+        if not bool(latest.get("volume_ok", False)):
             return None
         atr_val = float(latest.get("atr", 0.0) or 0.0)
         if atr_val <= 0:
@@ -95,7 +110,7 @@ class Scalper:
         if stop_price <= 0:
             return None
         timestamp = features.index[-1]
-        reason = "long breakout with trend alignment"
+        reason = "long breakout with trend and volume confirmation"
         return Signal(
             timestamp=timestamp,
             side="Buy",

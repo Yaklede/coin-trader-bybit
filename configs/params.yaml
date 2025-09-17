@@ -20,6 +20,8 @@ strategy:
   trail_atr_mult: 1.5
   micro_high_lookback: 3
   time_stop_minutes: 15
+  volume_ma_period: 20
+  volume_threshold_ratio: 1.2
 execution:
   post_only: false
   reduce_only_exits: true
@@ -27,6 +29,8 @@ execution:
   min_qty: 0.001
   poll_interval_seconds: 30
   lookback_candles: 200
+  taker_fee_bps: 6.0
+  slippage_bps: 5.0
 logging:
   level: DEBUG
   dir: logs

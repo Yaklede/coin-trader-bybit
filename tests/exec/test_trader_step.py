@@ -34,6 +34,7 @@ def _build_trend_records() -> list[KlineRecord]:
         high = price + 1.0
         low = price - 1.0
         close = price + 0.8
+        volume = 100.0 if i < 170 else 2000.0 + (i - 170) * 100.0
         candles.append(
             KlineRecord(
                 timestamp=pd.Timestamp(ts),
@@ -41,6 +42,7 @@ def _build_trend_records() -> list[KlineRecord]:
                 high=high,
                 low=low,
                 close=close,
+                volume=volume,
             )
         )
         price = close
@@ -56,6 +58,8 @@ def test_trader_places_order_on_breakout():
     cfg.strategy.micro_high_lookback = 3
     cfg.strategy.atr_period = 5
     cfg.strategy.timeframe_entry = "1m"
+    cfg.strategy.volume_ma_period = 5
+    cfg.strategy.volume_threshold_ratio = 1.05
 
     feed = MemoryDataFeed(_build_trend_records())
     client = DummyClient()
@@ -81,6 +85,8 @@ def test_trader_caps_qty_by_notional_limit():
     cfg.strategy.micro_high_lookback = 3
     cfg.strategy.atr_period = 5
     cfg.strategy.timeframe_entry = "1m"
+    cfg.strategy.volume_ma_period = 5
+    cfg.strategy.volume_threshold_ratio = 1.05
     cfg.risk.max_live_order_notional_krw = 50_000.0
     cfg.risk.usdt_krw_rate = 1_000.0
 

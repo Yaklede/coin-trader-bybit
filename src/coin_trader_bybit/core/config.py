@@ -22,6 +22,8 @@ class StrategyConfig(BaseModel):
     trail_atr_mult: float = 1.5
     micro_high_lookback: int = 3
     time_stop_minutes: int = 15
+    volume_ma_period: int = 20
+    volume_threshold_ratio: float = 1.2
 
 
 class ExecutionConfig(BaseModel):
@@ -32,6 +34,8 @@ class ExecutionConfig(BaseModel):
     testnet: bool = True
     poll_interval_seconds: int = 30
     lookback_candles: int = 200
+    taker_fee_bps: float = 6.0
+    slippage_bps: float = 5.0
 
 
 class LoggingConfig(BaseModel):

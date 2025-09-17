@@ -15,6 +15,7 @@ class KlineRecord:
     high: float
     low: float
     close: float
+    volume: float
 
 
 class DataFeed:
@@ -61,9 +62,12 @@ class BybitDataFeed(DataFeed):
                         high=float(entry["high"]),
                         low=float(entry["low"]),
                         close=float(entry["close"]),
+                        volume=float(
+                            entry.get("volume") or entry.get("turnover") or 0.0
+                        ),
                     )
                 )
-            elif isinstance(entry, (list, tuple)) and len(entry) >= 5:
+            elif isinstance(entry, (list, tuple)) and len(entry) >= 6:
                 timestamp = pd.to_datetime(int(entry[0]), unit="ms", utc=True)
                 records.append(
                     KlineRecord(
@@ -72,10 +76,11 @@ class BybitDataFeed(DataFeed):
                         high=float(entry[2]),
                         low=float(entry[3]),
                         close=float(entry[4]),
+                        volume=float(entry[5]),
                     )
                 )
         if not records:
-            return pd.DataFrame(columns=["open", "high", "low", "close"])
+            return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
         df = pd.DataFrame([r.__dict__ for r in records]).set_index("timestamp")
         return df.sort_index()
 
@@ -89,6 +94,6 @@ class MemoryDataFeed(DataFeed):
     def fetch(self, limit: int) -> pd.DataFrame:
         selected = self.candles[-limit:]
         if not selected:
-            return pd.DataFrame(columns=["open", "high", "low", "close"])
+            return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
         df = pd.DataFrame([r.__dict__ for r in selected]).set_index("timestamp")
         return df.sort_index()

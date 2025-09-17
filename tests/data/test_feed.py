@@ -10,11 +10,12 @@ class StubClient:
 
 
 def test_bybit_feed_handles_list_payload():
-    payload = [["1700000000000", "100", "101", "99", "100.5"]]
+    payload = [["1700000000000", "100", "101", "99", "100.5", "123"]]
     feed = BybitDataFeed(StubClient(payload), symbol="BTCUSDT", interval="1")
     df = feed.fetch(limit=1)
     assert not df.empty
     assert df.iloc[0]["close"] == 100.5
+    assert df.iloc[0]["volume"] == 123.0
 
 
 def test_bybit_feed_handles_dict_payload():
@@ -25,9 +26,11 @@ def test_bybit_feed_handles_dict_payload():
             "high": "101",
             "low": "99",
             "close": "100.5",
+            "volume": "456",
         }
     ]
     feed = BybitDataFeed(StubClient(payload), symbol="BTCUSDT", interval="1")
     df = feed.fetch(limit=1)
     assert not df.empty
     assert df.iloc[0]["open"] == 100.0
+    assert df.iloc[0]["volume"] == 456.0
