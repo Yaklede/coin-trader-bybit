@@ -28,6 +28,15 @@ class RiskManager:
         if equity > 0:
             self._equity = equity
 
+    def max_order_qty(self, entry_price: float) -> float | None:
+        limit_krw = self.cfg.risk.max_live_order_notional_krw
+        if limit_krw is None or limit_krw <= 0:
+            return None
+        if entry_price <= 0:
+            return None
+        limit_usdt = limit_krw / self.cfg.risk.usdt_krw_rate
+        return limit_usdt / entry_price
+
     def position_size(self, entry_price: float, stop_price: float) -> float:
         stop_distance = entry_price - stop_price
         if stop_distance <= 0:

@@ -438,18 +438,6 @@
               }
             ]
           }
-        },
-        {
-          "id": "filterByValue",
-          "options": {
-            "filters": [
-              {
-                "fieldName": "PnL",
-                "matcher": "notEqual",
-                "value": 0
-              }
-            ]
-          }
         }
       ],
       "type": "table"
@@ -587,7 +575,7 @@
             "type": "prometheus",
             "uid": "deybl4q5vttz4f"
           },
-          "expr": "coin_trader_last_candle_ts",
+          "expr": "coin_trader_last_candle_ts * 1000",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -656,7 +644,7 @@
             "type": "prometheus",
             "uid": "deybl4q5vttz4f"
           },
-          "expr": "coin_trader_last_signal_ts",
+          "expr": "coin_trader_last_signal_ts * 1000",
           "interval": "",
           "legendFormat": "",
           "refId": "A"

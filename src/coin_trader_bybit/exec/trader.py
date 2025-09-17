@@ -149,6 +149,15 @@ class Trader:
             self.log.warning("Invalid signal sizing: %s", exc)
             return
 
+        limit_qty = self.risk_manager.max_order_qty(signal.entry_price)
+        if limit_qty is not None and limit_qty > 0 and qty > limit_qty:
+            self.log.debug(
+                "Capping qty from %.6f to %.6f due to notional limit",
+                qty,
+                limit_qty,
+            )
+            qty = limit_qty
+
         if qty < self.cfg.execution.min_qty:
             self.log.debug(
                 "Calculated qty %.6f below minimum %.6f",

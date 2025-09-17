@@ -70,3 +70,30 @@ def test_trader_places_order_on_breakout():
     order = client.orders[0]
     assert order["symbol"] == cfg.symbol
     assert order["side"] == "Buy"
+
+
+def test_trader_caps_qty_by_notional_limit():
+    cfg = AppConfig()
+    cfg.execution.lookback_candles = 120
+    cfg.execution.min_qty = 0.0001
+    cfg.strategy.ema_fast = 5
+    cfg.strategy.ema_slow = 10
+    cfg.strategy.micro_high_lookback = 3
+    cfg.strategy.atr_period = 5
+    cfg.strategy.timeframe_entry = "1m"
+    cfg.risk.max_live_order_notional_krw = 50_000.0
+    cfg.risk.usdt_krw_rate = 1_000.0
+
+    feed = MemoryDataFeed(_build_trend_records())
+    client = DummyClient()
+    risk_manager = RiskManager(cfg)
+
+    trader = Trader(
+        cfg, metrics=None, feed=feed, risk_manager=risk_manager, client=client
+    )
+    trader.step()
+
+    assert client.orders
+    order = client.orders[0]
+    # limit_usdt = 50, price close ~ >100 => qty should be < 1
+    assert float(order["qty"]) < 1

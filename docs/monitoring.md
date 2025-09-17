@@ -90,8 +90,7 @@ Promtail은 Docker 소켓을 읽어 컨테이너 STDOUT을 자동 수집합니�
 - **현재 수익률 (%)**: `coin_trader_current_return_pct`
 - **최근 거래 5건**: `coin_trader_recent_trade_*` 지표에서 PnL/수량/R/방향을 표시하되, 체결이 없으면 공백
 - **Loop Delay (s)**: `time() - coin_trader_last_loop_ts` 로 계산해 마지막 루프 이후 경과 시간
-- **마지막 캔들 시각**: `coin_trader_last_candle_ts` (값이 없으면 "No candles yet" 표시)
-- **마지막 신호 시각/방향**: `coin_trader_last_signal_ts`, `coin_trader_last_signal_side` (값이 없으면 "No signal yet")
+- **마지막 캔들 시각**: `coin_trader_last_candle_ts * 1000` (값이 없으면 "No candles yet" 표시)
+- **마지막 신호 시각/방향**: `coin_trader_last_signal_ts * 1000`, `coin_trader_last_signal_side` (값이 없으면 "No signal yet")
 - **최근 5분 에러 발생**: `increase(coin_trader_errors_total[5m])` 로 타입별 루프 오류 건수를 표시
-
 
