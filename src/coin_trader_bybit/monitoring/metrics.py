@@ -176,6 +176,33 @@ class MetricsCollector:
             ["slot"],
             registry=self.registry,
         )
+        self.loop_timestamp = Gauge(
+            "coin_trader_last_loop_ts",
+            "Unix timestamp of the most recent strategy loop iteration",
+            registry=self.registry,
+        )
+        self.candle_timestamp = Gauge(
+            "coin_trader_last_candle_ts",
+            "Unix timestamp of the most recent candle processed",
+            registry=self.registry,
+        )
+        self.signal_side = Gauge(
+            "coin_trader_last_signal_side",
+            "Last signal direction (1=buy, -1=sell, 0=none)",
+            registry=self.registry,
+        )
+        self.signal_timestamp = Gauge(
+            "coin_trader_last_signal_ts",
+            "Unix timestamp of the most recent signal generated",
+            registry=self.registry,
+        )
+        self.error_counter = Counter(
+            "coin_trader_errors_total",
+            "Number of recoverable errors encountered in the loop",
+            ["type"],
+            registry=self.registry,
+        )
+
         self.recent_trade_timestamp = Gauge(
             "coin_trader_recent_trade_timestamp",
             "Most recent trade timestamp (unix seconds)",
@@ -298,6 +325,24 @@ class MetricsCollector:
         total = self._realized_pnl + self._open_pnl
         current_return = (total / self.initial_equity) * 100.0
         self.current_return_pct.set(current_return)
+
+    def record_loop(self, timestamp: float) -> None:
+        self.loop_timestamp.set(timestamp)
+
+    def record_candle(self, timestamp: float) -> None:
+        self.candle_timestamp.set(timestamp)
+
+    def record_signal(self, *, timestamp: float, side: str) -> None:
+        self.signal_timestamp.set(timestamp)
+        if side.lower() == "buy":
+            self.signal_side.set(1.0)
+        elif side.lower() == "sell":
+            self.signal_side.set(-1.0)
+        else:
+            self.signal_side.set(0.0)
+
+    def record_error(self, error_type: str) -> None:
+        self.error_counter.labels(type=error_type).inc()
 
 
 def start_metrics_server(host: str, port: int, registry: CollectorRegistry) -> None:

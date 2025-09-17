@@ -30,6 +30,8 @@ class ExecutionConfig(BaseModel):
     max_position: int = 1
     min_qty: float = 0.001
     testnet: bool = True
+    poll_interval_seconds: int = 30
+    lookback_candles: int = 200
 
 
 class LoggingConfig(BaseModel):

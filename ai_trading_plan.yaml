@@ -91,7 +91,7 @@ phases:
   steps:
   - id: exec-1
     task: Order router for Bybit (limit/market, reduceOnly, postOnly)
-    status: pending
+    status: completed
     done_when: "Dry\u2011run on testnet passes end\u2011to\u2011end"
   - id: exec-2
     task: 'Risk controls: daily stop, one position, cooldown 3m'

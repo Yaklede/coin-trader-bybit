@@ -12,12 +12,13 @@ Side = Literal["Buy", "Sell"]
 
 @dataclass
 class Signal:
-    """Represents a discretionary trade idea."""
+    """Represents a trade opportunity with pricing context."""
 
     timestamp: pd.Timestamp
     side: Side
     entry_price: float
     stop_price: float
+    atr: float
     reason: str
 
 
@@ -80,10 +81,29 @@ class Scalper:
         df["long_breakout"] = (df["high"] > df["micro_high"]) & df["trend_up"]
         return df
 
-    def maybe_signal(self) -> Optional[Signal]:
-        """Placeholder for live wiring (not yet connected to streaming data)."""
-
-        return None
+    def generate_signal(self, features: pd.DataFrame) -> Optional[Signal]:
+        if features.empty:
+            return None
+        latest = features.iloc[-1]
+        if not bool(latest.get("long_breakout", False)):
+            return None
+        atr_val = float(latest.get("atr", 0.0) or 0.0)
+        if atr_val <= 0:
+            return None
+        entry_price = float(latest["close"])
+        stop_price = entry_price - atr_val * self.cfg.atr_mult_stop
+        if stop_price <= 0:
+            return None
+        timestamp = features.index[-1]
+        reason = "long breakout with trend alignment"
+        return Signal(
+            timestamp=timestamp,
+            side="Buy",
+            entry_price=entry_price,
+            stop_price=stop_price,
+            atr=atr_val,
+            reason=reason,
+        )
 
 
 __all__ = ["Scalper", "Signal", "timeframe_to_pandas_freq"]

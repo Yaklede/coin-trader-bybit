@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import os
 
@@ -87,6 +87,28 @@ class BybitClient:
             order_id=order_id, raw=resp if isinstance(resp, dict) else {}
         )
 
+    def get_kline(
+        self,
+        *,
+        symbol: str,
+        category: str = "linear",
+        interval: str = "1",
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        if not HAVE_PYBIT:  # pragma: no cover
+            raise RuntimeError("pybit not installed")
+        resp = self.http.get_kline(
+            category=category,
+            symbol=symbol,
+            interval=interval,
+            limit=limit,
+        )
+        result = resp.get("result") if isinstance(resp, dict) else None
+        if not isinstance(result, dict):
+            return []
+        data = result.get("list")
+        return data if isinstance(data, list) else []
+
     def _enforce_live_notional_cap(
         self, *, symbol: str, category: str, qty: float
     ) -> None:
@@ -133,3 +155,69 @@ class BybitClient:
         if not HAVE_PYBIT:  # pragma: no cover
             raise RuntimeError("pybit not installed")
         return self.http.get_positions(category=category, symbol=symbol)
+
+    def get_linear_position_snapshot(
+        self, *, symbol: str, category: str = "linear"
+    ) -> Dict[str, float]:
+        data = self.get_position(symbol=symbol, category=category)
+        result = data.get("result") if isinstance(data, dict) else {}
+        items = result.get("list") if isinstance(result, dict) else []
+        if not isinstance(items, list):
+            return {"qty": 0.0, "entry_price": 0.0, "mark_price": 0.0}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("symbol") != symbol:
+                continue
+            qty = float(item.get("size", 0.0))
+            entry_price = float(item.get("avgPrice", 0.0) or 0.0)
+            mark_price = float(item.get("markPrice", entry_price) or entry_price)
+            return {"qty": qty, "entry_price": entry_price, "mark_price": mark_price}
+        return {"qty": 0.0, "entry_price": 0.0, "mark_price": 0.0}
+
+    def get_wallet_equity(self, *, coin: str = "USDT") -> Optional[float]:
+        if not HAVE_PYBIT:  # pragma: no cover
+            raise RuntimeError("pybit not installed")
+        resp = self.http.get_wallet_balance(accountType="UNIFIED", coin=coin)
+        result = resp.get("result") if isinstance(resp, dict) else None
+        if not isinstance(result, dict):
+            return None
+        balances = result.get("list")
+        if not isinstance(balances, list):
+            return None
+        for item in balances:
+            if not isinstance(item, dict):
+                continue
+            if item.get("coin") != coin:
+                continue
+            equity = item.get("equity") or item.get("walletBalance")
+            if equity is None:
+                continue
+            try:
+                return float(equity)
+            except (TypeError, ValueError):  # pragma: no cover
+                continue
+        return None
+
+    def get_last_price(
+        self, *, symbol: str, category: str = "linear"
+    ) -> Optional[float]:
+        if not HAVE_PYBIT:  # pragma: no cover
+            raise RuntimeError("pybit not installed")
+        resp = self.http.get_tickers(category=category, symbol=symbol)
+        result = resp.get("result") if isinstance(resp, dict) else None
+        if not isinstance(result, dict):
+            return None
+        items = result.get("list")
+        if not isinstance(items, list) or not items:
+            return None
+        data = items[0]
+        if not isinstance(data, dict):
+            return None
+        price_str = data.get("lastPrice") or data.get("markPrice")
+        if price_str is None:
+            return None
+        try:
+            return float(price_str)
+        except (TypeError, ValueError):  # pragma: no cover
+            return None

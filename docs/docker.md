@@ -14,6 +14,8 @@ docker run --rm \
   coin-trader:latest --mode=paper --symbol=BTCUSDT --config=configs/params.yaml
 ```
 
+컨테이너는 메인 루프가 계속 동작하므로 `Ctrl+C` 또는 `docker stop`으로 종료하기 전까지 살아 있습니다. 장시간 실행하려면 `--rm` 옵션을 빼고, 필요 시 `docker stop coin-trader`로 중단하세요.
+
 ## 백테스트 실행
 CSV 파일(열: `timestamp,open,high,low,close`)을 `/data`로 마운트하고 `--mode=backtest`를 지정하면 됩니다.
 
@@ -31,6 +33,7 @@ docker run --rm \
 - **메트릭 노출**: 컨테이너 실행 후 `http://localhost:9000/`에서 Prometheus 포맷 메트릭이 반환되는지 확인합니다.
 - **백테스트 결과**: `Backtest complete` 문구와 함께 PnL, Profit Factor, Max DD 등이 표시되는지 확인합니다.
 - **실행 종료 코드**: 명령이 성공적으로 끝났다면 종료 코드 `0`이어야 합니다. (`docker run --rm`는 정상 종료 시 자동으로 컨테이너를 제거합니다.)
+- **지속 실행**: 실거래/페이퍼 모드에서는 루프가 상시 동작하므로 컨테이너가 자동으로 종료되지 않습니다. 종료가 필요하면 `docker stop` 또는 Compose의 `down` 명령을 사용하세요.
 - **paper/live 모드**: `--mode=paper`로 실행하면 “scaffold run” 로그만 출력되고 주문은 전송되지 않으며, `--mode=live`의 경우 Bybit API 키를 찾았는지 여부를 먼저 확인하세요.
 
 ## 추가 팁

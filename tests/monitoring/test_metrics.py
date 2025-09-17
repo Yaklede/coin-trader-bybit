@@ -85,3 +85,21 @@ def test_record_trade_updates_recent_slots_and_win_rate() -> None:
         _registry_value(registry, "coin_trader_recent_trade_pnl", {"slot": "1"}) == 50.0
     )
     assert _registry_value(registry, "coin_trader_win_rate") == 0.5
+
+
+def test_record_loop_and_signal():
+    registry = CollectorRegistry()
+    metrics = MetricsCollector(registry=registry, initial_equity=10_000.0)
+
+    metrics.record_loop(123.0)
+    metrics.record_candle(456.0)
+    metrics.record_signal(timestamp=789.0, side="Buy")
+    metrics.record_error("fetch")
+
+    assert _registry_value(registry, "coin_trader_last_loop_ts") == 123.0
+    assert _registry_value(registry, "coin_trader_last_candle_ts") == 456.0
+    assert _registry_value(registry, "coin_trader_last_signal_ts") == 789.0
+    assert _registry_value(registry, "coin_trader_last_signal_side") == 1.0
+    assert (
+        _registry_value(registry, "coin_trader_errors_total", {"type": "fetch"}) == 1.0
+    )
