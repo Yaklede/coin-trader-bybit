@@ -15,13 +15,17 @@ strategy:
   ema_fast: 50
   ema_slow: 200
   atr_period: 14
-  atr_mult_stop: 1.0
-  partial_tp_r: 1.0
-  trail_atr_mult: 1.5
-  micro_high_lookback: 3
-  time_stop_minutes: 15
+  atr_mult_stop: 1.5
+  partial_tp_r: 3.0
+  trail_atr_mult: 2.0
+  micro_high_lookback: 2
+  time_stop_minutes: 30
   volume_ma_period: 20
-  volume_threshold_ratio: 1.2
+  volume_threshold_ratio: 1.0
+  use_trend_filter: false
+  use_volume_filter: true
+  entry_buffer_pct: 0.01
+  stop_loss_pct: 0.03
 execution:
   post_only: false
   reduce_only_exits: true

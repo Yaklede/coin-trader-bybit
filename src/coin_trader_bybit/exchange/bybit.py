@@ -104,13 +104,14 @@ class BybitClient:
         category: str = "linear",
         reduce_only: bool = False,
         position_idx: Optional[int] = None,
+        skip_notional_check: bool = False,
     ) -> OrderResult:
-        if not HAVE_PYBIT:  # pragma: no cover
+        if self.http is None:  # pragma: no cover
             raise RuntimeError(
-                "pybit not installed; install requirements or use ccxt fallback"
+                "pybit not installed and no HTTP client provided"
             )
 
-        if not self.testnet and not reduce_only:
+        if not self.testnet and not reduce_only and not skip_notional_check:
             self._enforce_live_notional_cap(symbol=symbol, category=category, qty=qty)
         payload: Dict[str, Any] = {
             "category": category,
@@ -151,6 +152,7 @@ class BybitClient:
             category=category,
             reduce_only=reduce_only,
             position_idx=position_idx,
+            skip_notional_check=True,
         )
 
     def get_kline(
@@ -193,7 +195,7 @@ class BybitClient:
             )
 
     def _fetch_last_price(self, *, symbol: str, category: str) -> float:
-        if not HAVE_PYBIT or self.http is None:  # pragma: no cover
+        if self.http is None:  # pragma: no cover
             raise RuntimeError("pybit not installed")
 
         resp = self.http.get_tickers(category=category, symbol=symbol)
@@ -213,12 +215,12 @@ class BybitClient:
             raise RuntimeError("Ticker price is not numeric") from exc
 
     def cancel_all(self, *, symbol: str, category: str = "linear") -> Dict[str, Any]:
-        if not HAVE_PYBIT:  # pragma: no cover
+        if self.http is None:  # pragma: no cover
             raise RuntimeError("pybit not installed")
         return self.http.cancel_all_orders(category=category, symbol=symbol)
 
     def get_position(self, *, symbol: str, category: str = "linear") -> Dict[str, Any]:
-        if not HAVE_PYBIT:  # pragma: no cover
+        if self.http is None:  # pragma: no cover
             raise RuntimeError("pybit not installed")
         return self.http.get_positions(category=category, symbol=symbol)
 
@@ -242,7 +244,7 @@ class BybitClient:
         return {"qty": 0.0, "entry_price": 0.0, "mark_price": 0.0}
 
     def get_wallet_equity(self, *, coin: str = "USDT") -> Optional[float]:
-        if not HAVE_PYBIT:  # pragma: no cover
+        if self.http is None:  # pragma: no cover
             raise RuntimeError("pybit not installed")
         resp = self.http.get_wallet_balance(accountType="UNIFIED", coin=coin)
         result = resp.get("result") if isinstance(resp, dict) else None

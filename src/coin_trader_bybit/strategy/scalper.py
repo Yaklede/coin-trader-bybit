@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Literal, Optional
 
 import pandas as pd
+import numpy as np
 
 from ..core.config import StrategyConfig
 
@@ -66,11 +67,16 @@ class Scalper:
             raise ValueError(f"data missing required columns: {missing}")
 
         df = data.copy()
-        anchor_freq = timeframe_to_pandas_freq(self.cfg.timeframe_anchor)
-        close_anchor = df["close"].resample(anchor_freq).last()
-        ema_fast = close_anchor.ewm(span=self.cfg.ema_fast, adjust=False).mean()
-        ema_slow = close_anchor.ewm(span=self.cfg.ema_slow, adjust=False).mean()
-        trend_up = (ema_fast > ema_slow).reindex(df.index, method="ffill").fillna(False)
+        if self.cfg.use_trend_filter:
+            anchor_freq = timeframe_to_pandas_freq(self.cfg.timeframe_anchor)
+            close_anchor = df["close"].resample(anchor_freq).last()
+            ema_fast = close_anchor.ewm(span=self.cfg.ema_fast, adjust=False).mean()
+            ema_slow = close_anchor.ewm(span=self.cfg.ema_slow, adjust=False).mean()
+            trend_up = (
+                (ema_fast > ema_slow).reindex(df.index, method="ffill").fillna(False)
+            )
+        else:
+            trend_up = pd.Series(True, index=df.index)
 
         df["trend_up"] = trend_up
         df["atr"] = _compute_atr(df, self.cfg.atr_period)
@@ -80,18 +86,22 @@ class Scalper:
         df["micro_high"] = rolling_high.shift(1)
         df["long_breakout"] = (df["high"] > df["micro_high"]) & df["trend_up"]
 
-        volume_ma = (
-            df["volume"]
-            .rolling(
-                window=self.cfg.volume_ma_period,
-                min_periods=self.cfg.volume_ma_period,
+        if self.cfg.use_volume_filter:
+            volume_ma = (
+                df["volume"]
+                    .rolling(
+                        window=self.cfg.volume_ma_period,
+                        min_periods=self.cfg.volume_ma_period,
+                    )
+                    .mean()
             )
-            .mean()
-        )
-        df["volume_ma"] = volume_ma
-        df["volume_ok"] = (
-            df["volume"] >= df["volume_ma"] * self.cfg.volume_threshold_ratio
-        )
+            df["volume_ma"] = volume_ma
+            df["volume_ok"] = (
+                df["volume"] >= df["volume_ma"] * self.cfg.volume_threshold_ratio
+            )
+        else:
+            df["volume_ma"] = pd.Series(np.nan, index=df.index)
+            df["volume_ok"] = True
         return df
 
     def generate_signal(self, features: pd.DataFrame) -> Optional[Signal]:
@@ -100,13 +110,19 @@ class Scalper:
         latest = features.iloc[-1]
         if not bool(latest.get("long_breakout", False)):
             return None
-        if not bool(latest.get("volume_ok", False)):
+        if self.cfg.use_volume_filter and not bool(latest.get("volume_ok", False)):
             return None
         atr_val = float(latest.get("atr", 0.0) or 0.0)
-        if atr_val <= 0:
+        if self.cfg.stop_loss_pct is None and atr_val <= 0:
             return None
         entry_price = float(latest["close"])
-        stop_price = entry_price - atr_val * self.cfg.atr_mult_stop
+        if self.cfg.entry_buffer_pct > 0:
+            entry_price = entry_price * (1 - self.cfg.entry_buffer_pct)
+        stop_price: float
+        if self.cfg.stop_loss_pct is not None and self.cfg.stop_loss_pct > 0:
+            stop_price = entry_price * (1 - self.cfg.stop_loss_pct)
+        else:
+            stop_price = entry_price - atr_val * self.cfg.atr_mult_stop
         if stop_price <= 0:
             return None
         timestamp = features.index[-1]

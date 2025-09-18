@@ -24,6 +24,10 @@ class StrategyConfig(BaseModel):
     time_stop_minutes: int = 15
     volume_ma_period: int = 20
     volume_threshold_ratio: float = 1.2
+    use_trend_filter: bool = True
+    use_volume_filter: bool = True
+    entry_buffer_pct: float = 0.0
+    stop_loss_pct: float | None = None
 
 
 class ExecutionConfig(BaseModel):
