@@ -2,12 +2,14 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
+from prometheus_client import CollectorRegistry
 
 from coin_trader_bybit.core.config import AppConfig
 from coin_trader_bybit.data.feed import KlineRecord, MemoryDataFeed
 from coin_trader_bybit.exec.trader import Trader
 from coin_trader_bybit.exchange.bybit import OrderResult
 from coin_trader_bybit.risk.manager import RiskManager
+from coin_trader_bybit.monitoring import MetricsCollector
 
 
 class DummyClient:
@@ -136,6 +138,15 @@ def _build_downtrend_records() -> list[KlineRecord]:
         )
         price = close
     return candles
+
+
+def _metric_value(
+    registry: CollectorRegistry, name: str, labels: dict[str, str] | None = None
+) -> float:
+    labels = labels or {}
+    value = registry.get_sample_value(name, labels)
+    assert value is not None, f"Metric {name} with labels {labels} not found"
+    return value
 
 
 def test_trader_places_order_on_breakout():
@@ -421,3 +432,53 @@ def test_trader_places_short_trade_and_closes_on_stop():
     assert len(client.orders) == 2
     exit_order = client.orders[1]
     assert exit_order.get("side") == "Buy"
+
+
+def test_trader_records_trades_in_metrics():
+    registry = CollectorRegistry()
+    cfg = AppConfig()
+    cfg.execution.lookback_candles = 120
+    cfg.execution.min_qty = 0.0001
+    cfg.execution.qty_step = 0.0001
+    cfg.strategy.ema_fast = 5
+    cfg.strategy.ema_slow = 10
+    cfg.strategy.micro_high_lookback = 3
+    cfg.strategy.atr_period = 5
+    cfg.strategy.timeframe_entry = "1m"
+    cfg.strategy.volume_ma_period = 5
+    cfg.strategy.volume_threshold_ratio = 1.05
+
+    feed = MemoryDataFeed(_build_trend_records())
+    client = DummyClient()
+    risk_manager = RiskManager(cfg)
+
+    metrics = MetricsCollector(
+        registry=registry, initial_equity=cfg.risk.starting_equity, recent_limit=1
+    )
+
+    trader = Trader(
+        cfg, metrics=metrics, feed=feed, risk_manager=risk_manager, client=client
+    )
+
+    trader.step()
+
+    trade = trader.active_trade
+    assert trade is not None
+    stop_price = trade.stop_price
+
+    next_ts = feed.candles[-1].timestamp + timedelta(minutes=1)
+    feed.candles.append(
+        KlineRecord(
+            timestamp=pd.Timestamp(next_ts),
+            open=stop_price,
+            high=stop_price + 0.5,
+            low=stop_price - 5.0,
+            close=stop_price - 2.0,
+            volume=500.0,
+        )
+    )
+
+    trader.step()
+
+    assert _metric_value(registry, "coin_trader_trades_total") == 1.0
+    assert _metric_value(registry, "coin_trader_recent_trade_pnl", {"slot": "0"}) <= 0.0

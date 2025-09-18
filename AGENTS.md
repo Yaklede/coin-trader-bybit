@@ -1,42 +1,36 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `src/coin_trader_bybit/` – core package (exchange, strategy, risk, exec, utils).
-- `src/coin_trader_bybit/exchange/bybit.py` – Bybit REST/WebSocket adapter.
-- `src/coin_trader_bybit/strategy/scalper.py` – BTC scalping logic.
-- `src/coin_trader_bybit/app.py` – CLI entry (`--mode=paper|live`).
-- `configs/params.yaml` – strategy + risk config; `.env.example` for secrets.
-- `tests/` – unit/integration tests; `data/` (gitignored) for cached OHLCV.
+- Core Python package lives in `src/coin_trader_bybit/`; key modules include `exchange/bybit.py`, `strategy/scalper.py`, and `app.py` for CLI entry.
+- Shared configs reside in `configs/params.yaml`; secrets belong in a local `.env` seeded from `.env.example`.
+- Tests mirror the package under `tests/`, and transient OHLCV/cache files belong in `data/` (gitignored).
 
 ## Build, Test, and Development Commands
-- Setup: `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
-- Lint/Format: `ruff check .` (lint), `black .` (format), `isort .` (imports)
-- Types: `mypy src`
-- Tests: `pytest -q` and `pytest --cov=src --cov-report=term-missing`
-- Run (paper): `python -m coin_trader_bybit.app --mode=paper --symbol=BTCUSDT --config=configs/params.yaml`
+- `python -m venv .venv && source .venv/bin/activate` creates an isolated Python 3.11 env.
+- `pip install -r requirements.txt` installs runtime and dev dependencies.
+- `python -m coin_trader_bybit.app --mode=paper --symbol=BTCUSDT --config=configs/params.yaml` boots the paper-trading CLI.
+- `ruff check .`, `black .`, and `isort .` keep the code formatted and linted; run before committing.
 
 ## Coding Style & Naming Conventions
-- Python 3.11, 4‑space indent, 100‑char lines, type hints for public APIs.
-- Names: `snake_case` (func/vars), `PascalCase` (classes), `UPPER_SNAKE_CASE` (consts), modules lower‑case.
-- Keep modules import‑safe (no side effects at import time).
+- Use 4-space indentation, ≤100-character lines, and type hints on public APIs.
+- Follow `snake_case` for functions/variables, `PascalCase` for classes, `UPPER_SNAKE_CASE` for constants, and keep modules import-safe.
+- Prefer descriptive docstrings where logic is non-obvious; avoid side effects at import time.
 
 ## Testing Guidelines
-- Framework: `pytest` with fixtures; network/e2e marked `@pytest.mark.e2e`.
-- Layout: `tests/test_*.py`, mirror package paths (e.g., `tests/exchange/test_bybit.py`).
-- Coverage: aim ≥ 85% on changed lines; include fee/slippage scenarios in strategy tests.
+- Write pytest tests in files named `tests/test_*.py`, mirroring module paths.
+- Run `pytest -q` for fast feedback and `pytest --cov=src --cov-report=term-missing` to confirm ≥85% coverage on touched code.
+- Include scenarios covering fees, slippage, and risk controls to align with the scalper mandate.
 
 ## Commit & Pull Request Guidelines
-- Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `perf:`, `ci:`.
-- Messages: subject ≤ 72 chars; body describes intent, trade‑offs; reference issues (`Closes #12`).
-- PRs: description, linked issues, screenshots/logs, tests updated, lint+format clean, docs updated.
-- Prefer small, focused PRs; avoid mixing refactors with behavior changes.
+- Use Conventional Commits (e.g., `feat: add bar generator`, `fix: tighten risk limit`) with ≤72-char subjects.
+- PRs should describe intent, trade-offs, linked issues, updated tests, and lint/type status; attach logs or screenshots when they clarify outcomes.
 
 ## Security & Configuration Tips
-- Never commit secrets; use `.env` and keep `.env.example` updated (`BYBIT_API_KEY`, `BYBIT_API_SECRET`).
-- Default to Bybit testnet; guard live mode behind explicit flag and minimal size.
-- Store config in `configs/params.yaml`; log without leaking secrets.
+- Never commit API keys; populate `.env` locally and update `.env.example` placeholders when fields change.
+- Default to Bybit testnet; require explicit opt-in for live trading with minimal size and `reduceOnly` exits.
+- Log operational data without leaking secrets; rotate keys promptly if suspicious activity occurs.
 
-## Agent‑Specific Instructions
-- Review and follow `ai_trading_plan.yaml` step‑by‑step.
-- Stop on safety gate failures (lint/types/tests/coverage or testnet checks).
-
+## Agent-Specific Instructions
+- Consult `ai_trading_plan.yaml` before major changes; adhere to risk (≤0.5% per trade, daily stop at -2R) and execution safety gates.
+- Prioritize completing pending plan steps (data ingestion, walk-forward, risk controls, alerts) before expanding scope.
+- Halt work if lint, type checks, tests, or testnet validations fail until resolved.

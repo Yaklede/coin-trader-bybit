@@ -4,6 +4,7 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Optional
 
 import pandas as pd
@@ -11,7 +12,7 @@ import pandas as pd
 from ..core.config import AppConfig
 from ..data.feed import BybitDataFeed, DataFeed
 from ..exchange.bybit import BybitClient
-from ..monitoring import MetricsCollector
+from ..monitoring import MetricsCollector, TradeRecord
 from ..risk.manager import PositionSnapshot, RiskManager
 from ..strategy.scalper import Scalper, timeframe_to_pandas_freq, Side
 
@@ -46,6 +47,8 @@ class ActiveTrade:
     last_bar_ts: pd.Timestamp
     bars_held: int = 0
     realized_pnl: float = 0.0
+    realized_qty: float = 0.0
+    avg_exit_price: float = 0.0
 
 
 @dataclass
@@ -323,7 +326,7 @@ class Trader:
             if self._submit_exit_order(
                 closed_qty, "stop_loss", mark_price, stop_level
             ):
-                self._finalize_trade_close(mark_price)
+                self._finalize_trade_close(mark_price, timestamp=timestamp)
                 self.log.info(
                     "Closed %s via stop qty=%.6f stop=%.2f",
                     side.lower(),
@@ -365,7 +368,7 @@ class Trader:
                         trade.partial_taken = True
                         trade.qty_open = abs(self.position.qty)
                         if trade.qty_open <= 0:
-                            self._finalize_trade_close(mark_price)
+                            self._finalize_trade_close(mark_price, timestamp=timestamp)
                             self.log.info(
                                 "Closed %s via partial TP qty=%.6f target=%.2f",
                                 side.lower(),
@@ -409,7 +412,7 @@ class Trader:
                 if self._submit_exit_order(
                     closed_qty, "trail_stop", mark_price, trail_level
                 ):
-                    self._finalize_trade_close(mark_price)
+                    self._finalize_trade_close(mark_price, timestamp=timestamp)
                     self.log.info(
                         "Closed %s via trail stop qty=%.6f stop=%.2f",
                         side.lower(),
@@ -425,7 +428,7 @@ class Trader:
             if self._submit_exit_order(
                 closed_qty, "time_stop", mark_price, mark_price
             ):
-                self._finalize_trade_close(mark_price)
+                self._finalize_trade_close(mark_price, timestamp=timestamp)
                 self.log.info(
                     "Closed %s via time stop qty=%.6f bars=%s",
                     side.lower(),
@@ -527,19 +530,52 @@ class Trader:
                 self.metrics.record_error("exit")
             return False
 
-    def _finalize_trade_close(self, mark_price: float) -> None:
+    def _finalize_trade_close(
+        self, mark_price: float, *, timestamp: Optional[pd.Timestamp] = None
+    ) -> None:
         trade = self.active_trade
         realized_r = None
+        exit_price = mark_price
+        qty_closed = 0.0
+        side: Optional[Side] = None
+
         if trade is not None:
             risk_amount = trade.risk_per_unit * trade.qty_total
             if risk_amount > 0:
                 realized_r = trade.realized_pnl / risk_amount
+            exit_price = trade.avg_exit_price or mark_price
+            qty_closed = trade.realized_qty or trade.qty_total
+            side = trade.side
+
         self.active_trade = None
         self.position = PositionSnapshot(qty=0.0, entry_price=0.0, mark_price=mark_price)
         self._update_metrics(mark_price)
         self.risk_manager.trigger_cooldown()
+
         if realized_r is not None:
             self.risk_manager.record_realized_r(realized_r)
+
+        if (
+            trade is not None
+            and self.metrics is not None
+            and side is not None
+            and qty_closed > 0
+        ):
+            trade_ts = (
+                timestamp.to_pydatetime()
+                if timestamp is not None
+                else datetime.now(timezone.utc)
+            )
+            record = TradeRecord(
+                timestamp=trade_ts,
+                side=side,
+                qty=qty_closed,
+                pnl=trade.realized_pnl,
+                entry_price=trade.entry_price,
+                exit_price=exit_price,
+                r_multiple=realized_r or 0.0,
+            )
+            self.metrics.record_trade(record)
 
     def _register_realized_pnl(
         self, trade: ActiveTrade, qty_closed: float, exit_price: float
@@ -549,6 +585,13 @@ class Trader:
         direction = 1.0 if trade.side == "Buy" else -1.0
         pnl_segment = (exit_price - trade.entry_price) * qty_closed * direction
         trade.realized_pnl += pnl_segment
+        prev_qty = trade.realized_qty
+        total_qty = prev_qty + qty_closed
+        if total_qty > 0:
+            trade.avg_exit_price = (
+                (trade.avg_exit_price * prev_qty) + (exit_price * qty_closed)
+            ) / total_qty
+            trade.realized_qty = total_qty
 
     def _time_stop_bars(self, time_stop_minutes: int) -> int:
         entry_freq = self.cfg.strategy.timeframe_entry
