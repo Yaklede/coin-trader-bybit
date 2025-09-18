@@ -6,7 +6,7 @@ risk:
   daily_stop_r_multiple: -2.0
   cooldown_minutes: 3
   max_live_order_notional_krw: 200000.0
-  usdt_krw_rate: 1350.0
+  usdt_krw_rate: 1400.0
   starting_equity: 10000.0
 strategy:
   name: scalper_v1
@@ -29,7 +29,7 @@ execution:
   min_qty: 0.001
   qty_step: 0.001
   margin_mode: ISOLATED_MARGIN
-  leverage: 3.0
+  leverage: 15.0
   position_mode: ONE_WAY
   poll_interval_seconds: 30
   lookback_candles: 200
