@@ -61,12 +61,19 @@ class BybitClient:
         symbol: str,
         margin_mode: str,
         leverage: float,
+        position_mode: str,
     ) -> None:
         if not HAVE_PYBIT or self.http is None:
             return
         margin_mode_upper = (margin_mode or "").upper()
         leverage_val = leverage if leverage and leverage > 0 else None
         leverage_str = f"{leverage_val:.8g}" if leverage_val is not None else None
+        position_mode_upper = (position_mode or "").upper()
+
+        if position_mode_upper:
+            self._attempt_set_position_mode(
+                category=category, symbol=symbol, position_mode=position_mode_upper
+            )
 
         if margin_mode_upper:
             self._attempt_set_margin_mode(margin_mode_upper)
@@ -96,7 +103,7 @@ class BybitClient:
         qty: float,
         category: str = "linear",
         reduce_only: bool = False,
-        position_idx: int = 0,
+        position_idx: Optional[int] = None,
     ) -> OrderResult:
         if not HAVE_PYBIT:  # pragma: no cover
             raise RuntimeError(
@@ -105,17 +112,19 @@ class BybitClient:
 
         if not self.testnet and not reduce_only:
             self._enforce_live_notional_cap(symbol=symbol, category=category, qty=qty)
+        payload: Dict[str, Any] = {
+            "category": category,
+            "symbol": symbol,
+            "side": side,
+            "orderType": "Market",
+            "qty": str(qty),
+            "reduceOnly": reduce_only,
+            "timeInForce": "GoodTillCancel",
+        }
+        if position_idx is not None:
+            payload["positionIdx"] = position_idx
 
-        resp = self.http.place_order(
-            category=category,
-            symbol=symbol,
-            side=side,
-            orderType="Market",
-            qty=str(qty),
-            reduceOnly=reduce_only,
-            positionIdx=position_idx,
-            timeInForce="GoodTillCancel",
-        )
+        resp = self.http.place_order(**payload)
         order_id = (
             resp.get("result", {}).get("orderId") if isinstance(resp, dict) else None
         )
@@ -130,6 +139,7 @@ class BybitClient:
         qty: float,
         category: str = "linear",
         reduce_only: bool = True,
+        position_idx: Optional[int] = None,
     ) -> OrderResult:
         if qty == 0:
             raise ValueError("qty must be non-zero when closing a position")
@@ -140,6 +150,7 @@ class BybitClient:
             qty=abs(qty),
             category=category,
             reduce_only=reduce_only,
+            position_idx=position_idx,
         )
 
     def get_kline(
@@ -327,3 +338,35 @@ class BybitClient:
             )
         except Exception as exc:  # pragma: no cover - network failure
             self.log.debug("set_leverage failed: %s", exc)
+
+    def _attempt_set_position_mode(
+        self,
+        *,
+        category: str,
+        symbol: str,
+        position_mode: str,
+    ) -> None:
+        method = getattr(self.http, "set_position_mode", None)
+        if method is None:
+            method = getattr(self.http, "switch_position_mode", None)
+        if method is None:
+            return
+        mode_value = self._position_mode_value(position_mode)
+        if mode_value is None:
+            return
+        try:
+            method(category=category, symbol=symbol, mode=mode_value)
+        except Exception as exc:  # pragma: no cover - network failure
+            self.log.debug("set_position_mode failed: %s", exc)
+
+    @staticmethod
+    def _position_mode_value(position_mode: str) -> Optional[int]:
+        mapping = {
+            "ONE_WAY": 0,
+            "UNIFIED": 0,
+            "MERGED": 0,
+            "HEDGE": 3,
+            "HEDGE_MODE": 3,
+            "TWO_WAY": 3,
+        }
+        return mapping.get(position_mode.upper())

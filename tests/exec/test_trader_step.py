@@ -18,10 +18,14 @@ class DummyClient:
         self.margin_calls: list[dict[str, object]] = []
 
     def place_market_order(self, **kwargs):
+        if "position_idx" in kwargs:
+            kwargs.setdefault("positionIdx", kwargs.pop("position_idx"))
+        if "reduce_only" in kwargs:
+            kwargs.setdefault("reduceOnly", kwargs.pop("reduce_only"))
         self.orders.append(kwargs)
         side = kwargs.get("side")
         qty = float(kwargs.get("qty", 0.0))
-        reduce_only = bool(kwargs.get("reduce_only", False))
+        reduce_only = bool(kwargs.get("reduceOnly", kwargs.get("reduce_only", False)))
         if qty > 0:
             if reduce_only:
                 if side == "Sell":
@@ -42,15 +46,19 @@ class DummyClient:
         qty: float,
         category: str = "linear",
         reduce_only: bool = True,
+        position_idx: int | None = None,
     ):
         side = "Sell" if qty > 0 else "Buy"
-        return self.place_market_order(
-            symbol=symbol,
-            side=side,
-            qty=abs(qty),
-            category=category,
-            reduce_only=reduce_only,
-        )
+        payload: dict[str, object] = {
+            "symbol": symbol,
+            "side": side,
+            "qty": abs(qty),
+            "category": category,
+            "reduceOnly": reduce_only,
+        }
+        if position_idx is not None:
+            payload["position_idx"] = position_idx
+        return self.place_market_order(**payload)
 
     def get_wallet_equity(self, *, coin: str = "USDT"):
         return 10_000.0
@@ -69,6 +77,7 @@ class DummyClient:
         symbol: str,
         margin_mode: str,
         leverage: float,
+        position_mode: str,
     ) -> None:
         self.margin_calls.append(
             {
@@ -76,6 +85,7 @@ class DummyClient:
                 "symbol": symbol,
                 "margin_mode": margin_mode,
                 "leverage": leverage,
+                "position_mode": position_mode,
             }
         )
 
@@ -130,6 +140,7 @@ def test_trader_places_order_on_breakout():
     order = client.orders[0]
     assert order["symbol"] == cfg.symbol
     assert order["side"] == "Buy"
+    assert order.get("positionIdx", order.get("position_idx")) == 0
 
 
 def test_trader_configures_margin_settings():
@@ -146,6 +157,57 @@ def test_trader_configures_margin_settings():
     call = client.margin_calls[0]
     assert call["margin_mode"] == "ISOLATED_MARGIN"
     assert call["leverage"] == pytest.approx(2.5)
+    assert call["position_mode"] == "ONE_WAY"
+
+
+def test_trader_sets_position_idx_in_hedge_mode():
+    cfg = AppConfig()
+    cfg.execution.position_mode = "HEDGE"
+    cfg.execution.margin_mode = "ISOLATED_MARGIN"
+    cfg.execution.min_qty = 0.001
+    cfg.execution.qty_step = 0.001
+    cfg.execution.lookback_candles = 120
+    cfg.strategy.ema_fast = 5
+    cfg.strategy.ema_slow = 10
+    cfg.strategy.micro_high_lookback = 3
+    cfg.strategy.atr_period = 5
+    cfg.strategy.timeframe_entry = "1m"
+    cfg.strategy.volume_ma_period = 5
+    cfg.strategy.volume_threshold_ratio = 1.05
+    feed = MemoryDataFeed(_build_trend_records())
+    client = DummyClient()
+    risk_manager = RiskManager(cfg)
+
+    trader = Trader(
+        cfg, metrics=None, feed=feed, risk_manager=risk_manager, client=client
+    )
+    trader.step()
+
+    assert client.orders
+    entry = client.orders[0]
+    assert entry.get("positionIdx", entry.get("position_idx")) == 1
+
+    trade = trader.active_trade
+    assert trade is not None
+
+    stop_price = trade.stop_price
+    next_ts = feed.candles[-1].timestamp + timedelta(minutes=1)
+    feed.candles.append(
+        KlineRecord(
+            timestamp=pd.Timestamp(next_ts),
+            open=stop_price,
+            high=stop_price + 0.5,
+            low=stop_price - 5.0,
+            close=stop_price - 2.0,
+            volume=500.0,
+        )
+    )
+
+    trader.step()
+    assert len(client.orders) == 2
+    exit_order = client.orders[1]
+    assert exit_order.get("positionIdx", exit_order.get("position_idx")) == 1
+    assert bool(exit_order.get("reduceOnly", exit_order.get("reduce_only"))) is True
 
 
 def test_trader_quantizes_order_qty():
@@ -177,6 +239,7 @@ def test_trader_quantizes_order_qty():
     assert client.orders
     order = client.orders[0]
     assert order["qty"] == pytest.approx(0.001)
+    assert order.get("positionIdx", order.get("position_idx")) == 0
 
 
 def test_trader_caps_qty_by_notional_limit():
@@ -281,6 +344,6 @@ def test_trader_closes_position_on_stop():
 
     assert len(client.orders) == 2
     exit_order = client.orders[1]
-    assert exit_order.get("reduce_only") is True
+    assert bool(exit_order.get("reduceOnly", exit_order.get("reduce_only"))) is True
     assert exit_order.get("side") == "Sell"
     assert pytest.approx(risk_manager.daily_r_total(), rel=1e-2) == -1.0

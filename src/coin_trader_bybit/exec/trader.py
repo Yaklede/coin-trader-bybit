@@ -213,6 +213,7 @@ class Trader:
                 side=signal.side,
                 qty=qty,
                 category=self.cfg.category,
+                position_idx=self._position_idx(signal.side, reduce_only=False),
             )
             signed_qty = qty if signal.side == "Buy" else -qty
             self.position = PositionSnapshot(
@@ -410,12 +411,14 @@ class Trader:
             )
             return True
         signed_qty = quantized_qty if current_qty >= 0 else -quantized_qty
+        exit_side = "Sell" if signed_qty > 0 else "Buy"
         try:
             order = self.client.close_position_market(
                 symbol=self.cfg.symbol,
                 category=self.cfg.category,
                 qty=signed_qty,
                 reduce_only=self.cfg.execution.reduce_only_exits,
+                position_idx=self._position_idx(exit_side, reduce_only=True),
             )
             if current_qty >= 0:
                 remaining_qty = max(current_qty - quantized_qty, 0.0)
@@ -517,6 +520,20 @@ class Trader:
                 symbol=self.cfg.symbol,
                 margin_mode=self.cfg.execution.margin_mode,
                 leverage=self.cfg.execution.leverage,
+                position_mode=self.cfg.execution.position_mode,
             )
         except Exception as exc:  # pragma: no cover - network failure
             self.log.warning("Failed to configure margin/leverage: %s", exc)
+
+    def _position_idx(self, side: str, *, reduce_only: bool) -> Optional[int]:
+        mode = (self.cfg.execution.position_mode or "").upper()
+        if mode in {"ONE_WAY", "UNIFIED", "MERGED", ""}:
+            return 0
+        if mode in {"HEDGE", "HEDGE_MODE", "TWO_WAY"}:
+            if reduce_only:
+                current_qty = self.position.qty
+                if current_qty < 0:
+                    return 2
+                return 1
+            return 1 if side.upper() == "BUY" else 2
+        return None

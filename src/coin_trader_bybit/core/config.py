@@ -34,6 +34,7 @@ class ExecutionConfig(BaseModel):
     qty_step: float = 0.001
     margin_mode: str = "ISOLATED_MARGIN"
     leverage: float = 3.0
+    position_mode: str = "ONE_WAY"
     testnet: bool = True
     poll_interval_seconds: int = 30
     lookback_candles: int = 200
