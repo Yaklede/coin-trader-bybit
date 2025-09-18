@@ -23,7 +23,7 @@
 - 동일한 전략 지표와 포지션 규칙을 `Backtester`가 재현한다. 부분청산·ATR 트레일·시간 종료·슬리피지·수수료를 반영하여 `BacktestReport`(거래 리스트, 에쿼티 커브, PnL 지표)를 반환한다.
 
 ## 위험 관리
-- 포지션 사이징은 `RiskManager.position_size()`가 `(에쿼티 × 위험%) ÷ (손절 거리)` 공식을 적용한다.
+- 포지션 사이징은 `RiskManager.position_size(entry_price, stop_price, side)`가 `(에쿼티 × 위험%) ÷ (손절 거리)` 공식을 적용하며 롱/숏 양방향을 모두 지원한다.
 - 실거래 시 노셔널 상한(`risk.max_live_order_notional_krw`)을 환산하여 주문 수량을 제한한다.
 - 쿨다운 카운터로 연속 진입을 제한하며, 일일 실현 R 합계가 한도에 도달하면 자동으로 신규 진입을 차단한다.
 

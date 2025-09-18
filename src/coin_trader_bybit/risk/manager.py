@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Literal
+
 from ..core.config import AppConfig
 from .position import size_by_risk
+
+Side = Literal["Buy", "Sell"]
 
 
 @dataclass
@@ -41,10 +45,14 @@ class RiskManager:
         limit_usdt = limit_krw / self.cfg.risk.usdt_krw_rate
         return limit_usdt / entry_price
 
-    def position_size(self, entry_price: float, stop_price: float) -> float:
-        stop_distance = entry_price - stop_price
-        if stop_distance <= 0:
+    def position_size(self, entry_price: float, stop_price: float, *, side: Side) -> float:
+        if side == "Buy" and stop_price >= entry_price:
             raise ValueError("stop_price must be below entry for long trades")
+        if side == "Sell" and stop_price <= entry_price:
+            raise ValueError("stop_price must be above entry for short trades")
+        stop_distance = abs(entry_price - stop_price)
+        if stop_distance <= 0:
+            raise ValueError("stop_distance must be positive")
         qty = size_by_risk(
             equity=self._equity,
             risk_pct=self.cfg.risk.max_risk_per_trade_pct,

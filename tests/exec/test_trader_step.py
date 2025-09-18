@@ -114,6 +114,30 @@ def _build_trend_records() -> list[KlineRecord]:
     return candles
 
 
+def _build_downtrend_records() -> list[KlineRecord]:
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    candles: list[KlineRecord] = []
+    price = 100.0
+    for i in range(180):
+        ts = base + timedelta(minutes=i)
+        high = price + 0.8
+        close = price - 0.8
+        low = close - 1.0
+        volume = 100.0 if i < 170 else 2000.0 + (i - 170) * 100.0
+        candles.append(
+            KlineRecord(
+                timestamp=pd.Timestamp(ts),
+                open=price,
+                high=high,
+                low=low,
+                close=close,
+                volume=volume,
+            )
+        )
+        price = close
+    return candles
+
+
 def test_trader_places_order_on_breakout():
     cfg = AppConfig()
     cfg.execution.lookback_candles = 120
@@ -212,7 +236,7 @@ def test_trader_sets_position_idx_in_hedge_mode():
 
 def test_trader_quantizes_order_qty():
     class FixedRiskManager(RiskManager):
-        def position_size(self, entry_price: float, stop_price: float) -> float:
+        def position_size(self, entry_price: float, stop_price: float, *, side: str) -> float:
             return 0.0012685871807996793
 
     cfg = AppConfig()
@@ -347,3 +371,53 @@ def test_trader_closes_position_on_stop():
     assert bool(exit_order.get("reduceOnly", exit_order.get("reduce_only"))) is True
     assert exit_order.get("side") == "Sell"
     assert pytest.approx(risk_manager.daily_r_total(), rel=1e-2) == -1.0
+
+
+def test_trader_places_short_trade_and_closes_on_stop():
+    cfg = AppConfig()
+    cfg.execution.lookback_candles = 120
+    cfg.execution.min_qty = 0.0001
+    cfg.execution.qty_step = 0.0001
+    cfg.strategy.allow_counter_trend_shorts = True
+    cfg.strategy.ema_fast = 5
+    cfg.strategy.ema_slow = 10
+    cfg.strategy.micro_high_lookback = 3
+    cfg.strategy.atr_period = 5
+    cfg.strategy.timeframe_entry = "1m"
+    cfg.strategy.volume_ma_period = 5
+    cfg.strategy.volume_threshold_ratio = 1.05
+
+    feed = MemoryDataFeed(_build_downtrend_records())
+    client = DummyClient()
+    risk_manager = RiskManager(cfg)
+
+    trader = Trader(
+        cfg, metrics=None, feed=feed, risk_manager=risk_manager, client=client
+    )
+    trader.step()
+
+    assert client.orders
+    entry_order = client.orders[0]
+    assert entry_order["side"] == "Sell"
+
+    trade = trader.active_trade
+    assert trade is not None
+
+    stop_price = trade.stop_price
+    next_ts = feed.candles[-1].timestamp + timedelta(minutes=1)
+    feed.candles.append(
+        KlineRecord(
+            timestamp=pd.Timestamp(next_ts),
+            open=stop_price,
+            high=stop_price + 5.0,
+            low=stop_price - 0.5,
+            close=stop_price + 1.0,
+            volume=500.0,
+        )
+    )
+
+    trader.step()
+
+    assert len(client.orders) == 2
+    exit_order = client.orders[1]
+    assert exit_order.get("side") == "Buy"

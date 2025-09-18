@@ -15,17 +15,17 @@ strategy:
   ema_fast: 50
   ema_slow: 200
   atr_period: 14
-  atr_mult_stop: 1.5
-  partial_tp_r: 3.0
+  atr_mult_stop: 1.0
+  partial_tp_r: 1.5
   trail_atr_mult: 2.0
   micro_high_lookback: 2
   time_stop_minutes: 30
   volume_ma_period: 20
   volume_threshold_ratio: 1.0
-  use_trend_filter: false
+  use_trend_filter: true
   use_volume_filter: true
-  entry_buffer_pct: 0.01
-  stop_loss_pct: 0.03
+  entry_buffer_pct: 0.0
+  stop_loss_pct: 0.01
   allow_counter_trend_shorts: true
   volume_timeframes:
     - 1m
@@ -44,7 +44,7 @@ execution:
   leverage: 4
   position_mode: ONE_WAY
   poll_interval_seconds: 30
-  lookback_candles: 200
+  lookback_candles: 360
   taker_fee_bps: 6.0
   slippage_bps: 5.0
 logging:

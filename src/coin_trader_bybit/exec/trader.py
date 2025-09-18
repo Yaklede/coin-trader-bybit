@@ -13,7 +13,7 @@ from ..data.feed import BybitDataFeed, DataFeed
 from ..exchange.bybit import BybitClient
 from ..monitoring import MetricsCollector
 from ..risk.manager import PositionSnapshot, RiskManager
-from ..strategy.scalper import Scalper, timeframe_to_pandas_freq
+from ..strategy.scalper import Scalper, timeframe_to_pandas_freq, Side
 
 
 def _bybit_interval_from_timeframe(timeframe: str) -> str:
@@ -35,6 +35,7 @@ def _bybit_interval_from_timeframe(timeframe: str) -> str:
 
 @dataclass
 class ActiveTrade:
+    side: Side
     entry_time: pd.Timestamp
     entry_price: float
     qty_total: float
@@ -179,7 +180,9 @@ class Trader:
 
         try:
             qty = self.risk_manager.position_size(
-                entry_price=signal.entry_price, stop_price=signal.stop_price
+                entry_price=signal.entry_price,
+                stop_price=signal.stop_price,
+                side=signal.side,
             )
         except ValueError as exc:
             self.log.warning("Invalid signal sizing: %s", exc)
@@ -205,7 +208,7 @@ class Trader:
             return
         qty = quantized_qty
 
-        stop_distance = signal.entry_price - signal.stop_price
+        stop_distance = abs(signal.entry_price - signal.stop_price)
 
         try:
             order = self.client.place_market_order(
@@ -223,8 +226,8 @@ class Trader:
             )
             self.last_signal_ts = signal.timestamp
             self.risk_manager.trigger_cooldown()
-            self._update_metrics(mark_price)
-            self.active_trade = ActiveTrade(
+            trade = ActiveTrade(
+                side=signal.side,
                 entry_time=signal.timestamp,
                 entry_price=signal.entry_price,
                 qty_total=qty,
@@ -234,6 +237,9 @@ class Trader:
                 partial_taken=False,
                 last_bar_ts=last_ts,
             )
+            self.active_trade = trade
+            self._hydrate_active_trade()
+            self._update_metrics(mark_price)
             self.log.info(
                 "Placed %s order qty=%.6f entry=%.2f stop=%.2f order_id=%s",
                 signal.side,
@@ -262,8 +268,14 @@ class Trader:
             snapshot = self.client.get_linear_position_snapshot(
                 symbol=self.cfg.symbol, category=self.cfg.category
             )
+            qty_raw = float(snapshot.get("qty", 0.0))
+            if self.active_trade is not None and qty_raw != 0.0:
+                direction = 1.0 if self.active_trade.side == "Buy" else -1.0
+                qty = abs(qty_raw) * direction
+            else:
+                qty = qty_raw
             self.position = PositionSnapshot(
-                qty=float(snapshot.get("qty", 0.0)),
+                qty=qty,
                 entry_price=float(snapshot.get("entry_price", 0.0)),
                 mark_price=float(snapshot.get("mark_price", 0.0)),
             )
@@ -272,10 +284,10 @@ class Trader:
             self.log.debug("Failed to fetch position snapshot: %s", exc)
 
     def _reconcile_active_trade(self) -> None:
-        if self.position.qty <= 0:
-            self.active_trade = None
-            return
         if self.active_trade is None:
+            return
+        if self.position.qty == 0:
+            self.active_trade = None
             return
         self.active_trade.qty_open = abs(self.position.qty)
 
@@ -284,11 +296,12 @@ class Trader:
     ) -> bool:
         if self.active_trade is None:
             return False
-        if self.position.qty <= 0 or self.active_trade.qty_open <= 0:
+        if self.position.qty == 0 or self.active_trade.qty_open <= 0:
             self.active_trade = None
             return False
 
         trade = self.active_trade
+        trade.qty_open = abs(self.position.qty)
         latest = features.iloc[-1]
         timestamp = features.index[-1]
         atr = float(latest.get("atr", 0.0) or 0.0)
@@ -299,8 +312,12 @@ class Trader:
             trade.last_bar_ts = timestamp
             trade.bars_held += 1
 
-        # Hard stop loss check first
-        if low <= trade.stop_price and trade.qty_open > 0:
+        side = trade.side
+        stop_hit = (
+            low <= trade.stop_price if side == "Buy" else high >= trade.stop_price
+        )
+
+        if stop_hit and trade.qty_open > 0:
             closed_qty = trade.qty_open
             stop_level = trade.stop_price
             if self._submit_exit_order(
@@ -308,59 +325,85 @@ class Trader:
             ):
                 self._finalize_trade_close(mark_price)
                 self.log.info(
-                    "Closed position via stop qty=%.6f stop=%.2f",
+                    "Closed %s via stop qty=%.6f stop=%.2f",
+                    side.lower(),
                     closed_qty,
                     stop_level,
                 )
                 return True
             return False
 
-        # Partial take profit
         if not trade.partial_taken and trade.qty_open > 0:
-            partial_target = trade.entry_price + (
-                trade.risk_per_unit * self.cfg.strategy.partial_tp_r
-            )
-            if high >= partial_target:
-                qty_partial = min(trade.qty_total * 0.5, trade.qty_open)
-                qty_partial = self._quantize_qty(qty_partial)
-                if qty_partial <= 0:
-                    self.log.debug(
-                        "Skipping partial: qty below minimum or step (min=%.6f step=%.6f)",
-                        self.cfg.execution.min_qty,
-                        self.cfg.execution.qty_step,
+            partial_mul = self.cfg.strategy.partial_tp_r
+            if partial_mul > 0:
+                if side == "Buy":
+                    partial_target = trade.entry_price + (
+                        trade.risk_per_unit * partial_mul
                     )
-                elif self._submit_exit_order(
-                    qty_partial,
-                    "partial_take_profit",
-                    mark_price,
-                    mark_price,
-                ):
-                    trade.partial_taken = True
-                    trade.qty_open = max(trade.qty_open - qty_partial, 0.0)
-                    trade.qty_open = round(trade.qty_open, 12)
-                    trade.stop_price = max(trade.stop_price, trade.entry_price)
-                    self.position = PositionSnapshot(
-                        qty=trade.qty_open,
-                        entry_price=trade.entry_price,
-                        mark_price=mark_price,
-                    )
-                    self._update_metrics(mark_price)
-                    self.log.info(
-                        "Partial take profit filled qty=%.6f target=%.2f remaining=%.6f",
-                        qty_partial,
-                        partial_target,
-                        trade.qty_open,
-                    )
+                    hit_target = high >= partial_target
                 else:
-                    return False
+                    partial_target = trade.entry_price - (
+                        trade.risk_per_unit * partial_mul
+                    )
+                    hit_target = low <= partial_target
 
-        # Adjust trailing stop after partials
+                if hit_target:
+                    qty_partial = min(trade.qty_total * 0.5, trade.qty_open)
+                    qty_partial = self._quantize_qty(qty_partial)
+                    if qty_partial <= 0:
+                        self.log.debug(
+                            "Skipping partial: qty below minimum or step (min=%.6f step=%.6f)",
+                            self.cfg.execution.min_qty,
+                            self.cfg.execution.qty_step,
+                        )
+                    elif self._submit_exit_order(
+                        qty_partial,
+                        "partial_take_profit",
+                        mark_price,
+                        partial_target,
+                    ):
+                        trade.partial_taken = True
+                        trade.qty_open = abs(self.position.qty)
+                        if trade.qty_open <= 0:
+                            self._finalize_trade_close(mark_price)
+                            self.log.info(
+                                "Closed %s via partial TP qty=%.6f target=%.2f",
+                                side.lower(),
+                                qty_partial,
+                                partial_target,
+                            )
+                            return True
+                        if side == "Buy":
+                            trade.stop_price = max(
+                                trade.stop_price, trade.entry_price
+                            )
+                        else:
+                            trade.stop_price = min(
+                                trade.stop_price, trade.entry_price
+                            )
+                        self._update_metrics(mark_price)
+                        self.log.info(
+                            "Partial TP filled qty=%.6f target=%.2f remaining=%.6f",
+                            qty_partial,
+                            partial_target,
+                            trade.qty_open,
+                        )
+                    else:
+                        return False
+
         if trade.partial_taken and trade.qty_open > 0 and atr > 0:
-            trail_stop = high - atr * self.cfg.strategy.trail_atr_mult
-            if trail_stop > trade.stop_price:
-                trade.stop_price = trail_stop
+            if side == "Buy":
+                trail_stop = high - atr * self.cfg.strategy.trail_atr_mult
+                if trail_stop > trade.stop_price:
+                    trade.stop_price = trail_stop
+                stop_hit = low <= trade.stop_price
+            else:
+                trail_stop = low + atr * self.cfg.strategy.trail_atr_mult
+                if trail_stop < trade.stop_price:
+                    trade.stop_price = trail_stop
+                stop_hit = high >= trade.stop_price
 
-            if low <= trade.stop_price:
+            if stop_hit:
                 closed_qty = trade.qty_open
                 trail_level = trade.stop_price
                 if self._submit_exit_order(
@@ -368,14 +411,14 @@ class Trader:
                 ):
                     self._finalize_trade_close(mark_price)
                     self.log.info(
-                        "Closed position via trail stop qty=%.6f stop=%.2f",
+                        "Closed %s via trail stop qty=%.6f stop=%.2f",
+                        side.lower(),
                         closed_qty,
                         trail_level,
                     )
                     return True
                 return False
 
-        # Time stop enforcement
         if trade.qty_open > 0 and trade.bars_held >= self.time_stop_bars:
             closed_qty = trade.qty_open
             bars = trade.bars_held
@@ -384,7 +427,8 @@ class Trader:
             ):
                 self._finalize_trade_close(mark_price)
                 self.log.info(
-                    "Closed position via time stop qty=%.6f bars=%s",
+                    "Closed %s via time stop qty=%.6f bars=%s",
+                    side.lower(),
                     closed_qty,
                     bars,
                 )
@@ -392,6 +436,41 @@ class Trader:
             return False
 
         return False
+
+    def _hydrate_active_trade(self) -> None:
+        trade = self.active_trade
+        if trade is None:
+            return
+        try:
+            self._sync_account_state()
+        except Exception:
+            return
+
+        qty_abs = abs(self.position.qty)
+        if qty_abs <= 0:
+            return
+
+        qty_signed = qty_abs if trade.side == "Buy" else -qty_abs
+
+        entry_price = self.position.entry_price or trade.entry_price
+        mark_price = self.position.mark_price or entry_price
+        risk_per_unit = trade.risk_per_unit or abs(trade.entry_price - trade.stop_price)
+        if risk_per_unit <= 0:
+            risk_per_unit = abs(entry_price - trade.stop_price)
+        if risk_per_unit <= 0:
+            risk_per_unit = 1e-8
+
+        trade.entry_price = entry_price
+        trade.qty_total = qty_abs
+        trade.qty_open = qty_abs
+        trade.stop_price = self._stop_from_entry(trade.side, entry_price, risk_per_unit)
+        trade.risk_per_unit = abs(entry_price - trade.stop_price)
+
+        self.position = PositionSnapshot(
+            qty=qty_signed,
+            entry_price=entry_price,
+            mark_price=mark_price,
+        )
 
     def _submit_exit_order(
         self, qty: float, reason: str, mark_price: float, exit_price: float
@@ -467,7 +546,8 @@ class Trader:
     ) -> None:
         if qty_closed <= 0:
             return
-        pnl_segment = (exit_price - trade.entry_price) * qty_closed
+        direction = 1.0 if trade.side == "Buy" else -1.0
+        pnl_segment = (exit_price - trade.entry_price) * qty_closed * direction
         trade.realized_pnl += pnl_segment
 
     def _time_stop_bars(self, time_stop_minutes: int) -> int:
@@ -507,6 +587,14 @@ class Trader:
         if qty < min_qty:
             return 0.0
         return qty
+
+    @staticmethod
+    def _stop_from_entry(side: Side, entry_price: float, risk_per_unit: float) -> float:
+        if risk_per_unit <= 0:
+            return entry_price
+        if side == "Buy":
+            return max(entry_price - risk_per_unit, 0.0)
+        return entry_price + risk_per_unit
 
     def _apply_margin_settings(self) -> None:
         if self.client is None:

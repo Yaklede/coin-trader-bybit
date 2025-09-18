@@ -7,7 +7,14 @@ from coin_trader_bybit.risk.manager import PositionSnapshot, RiskManager
 def test_risk_manager_position_size_positive():
     cfg = AppConfig()
     rm = RiskManager(cfg)
-    size = rm.position_size(entry_price=100.0, stop_price=99.0)
+    size = rm.position_size(entry_price=100.0, stop_price=99.0, side="Buy")
+    assert size > 0
+
+
+def test_risk_manager_position_size_supports_shorts():
+    cfg = AppConfig()
+    rm = RiskManager(cfg)
+    size = rm.position_size(entry_price=100.0, stop_price=103.0, side="Sell")
     assert size > 0
 
 
