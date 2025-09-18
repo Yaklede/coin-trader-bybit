@@ -14,9 +14,24 @@ class DummyClient:
     def __init__(self) -> None:
         self.orders = []
         self._mark_price = 105.0
+        self._position_qty = 0.0
 
     def place_market_order(self, **kwargs):
         self.orders.append(kwargs)
+        side = kwargs.get("side")
+        qty = float(kwargs.get("qty", 0.0))
+        reduce_only = bool(kwargs.get("reduce_only", False))
+        if qty > 0:
+            if reduce_only:
+                if side == "Sell":
+                    self._position_qty = max(self._position_qty - qty, 0.0)
+                elif side == "Buy":
+                    self._position_qty = min(self._position_qty + qty, 0.0)
+            else:
+                if side == "Buy":
+                    self._position_qty += qty
+                elif side == "Sell":
+                    self._position_qty -= qty
         return OrderResult(order_id="test-order", raw={})
 
     def close_position_market(
@@ -40,7 +55,11 @@ class DummyClient:
         return 10_000.0
 
     def get_linear_position_snapshot(self, *, symbol: str, category: str = "linear"):
-        return {"qty": 0.0, "entry_price": 0.0, "mark_price": self._mark_price}
+        return {
+            "qty": self._position_qty,
+            "entry_price": 0.0,
+            "mark_price": self._mark_price,
+        }
 
 
 def _build_trend_records() -> list[KlineRecord]:
@@ -71,6 +90,7 @@ def test_trader_places_order_on_breakout():
     cfg = AppConfig()
     cfg.execution.lookback_candles = 120
     cfg.execution.min_qty = 0.0001
+    cfg.execution.qty_step = 0.0001
     cfg.strategy.ema_fast = 5
     cfg.strategy.ema_slow = 10
     cfg.strategy.micro_high_lookback = 3
@@ -94,10 +114,42 @@ def test_trader_places_order_on_breakout():
     assert order["side"] == "Buy"
 
 
+def test_trader_quantizes_order_qty():
+    class FixedRiskManager(RiskManager):
+        def position_size(self, entry_price: float, stop_price: float) -> float:
+            return 0.0012685871807996793
+
+    cfg = AppConfig()
+    cfg.execution.lookback_candles = 120
+    cfg.execution.min_qty = 0.001
+    cfg.execution.qty_step = 0.001
+    cfg.strategy.ema_fast = 5
+    cfg.strategy.ema_slow = 10
+    cfg.strategy.micro_high_lookback = 3
+    cfg.strategy.atr_period = 5
+    cfg.strategy.timeframe_entry = "1m"
+    cfg.strategy.volume_ma_period = 5
+    cfg.strategy.volume_threshold_ratio = 1.05
+
+    feed = MemoryDataFeed(_build_trend_records())
+    client = DummyClient()
+    risk_manager = FixedRiskManager(cfg)
+
+    trader = Trader(
+        cfg, metrics=None, feed=feed, risk_manager=risk_manager, client=client
+    )
+    trader.step()
+
+    assert client.orders
+    order = client.orders[0]
+    assert order["qty"] == pytest.approx(0.001)
+
+
 def test_trader_caps_qty_by_notional_limit():
     cfg = AppConfig()
     cfg.execution.lookback_candles = 120
     cfg.execution.min_qty = 0.0001
+    cfg.execution.qty_step = 0.0001
     cfg.strategy.ema_fast = 5
     cfg.strategy.ema_slow = 10
     cfg.strategy.micro_high_lookback = 3
@@ -127,6 +179,7 @@ def test_trader_respects_daily_stop():
     cfg = AppConfig()
     cfg.execution.lookback_candles = 120
     cfg.execution.min_qty = 0.0001
+    cfg.execution.qty_step = 0.0001
     cfg.strategy.ema_fast = 5
     cfg.strategy.ema_slow = 10
     cfg.strategy.micro_high_lookback = 3
@@ -154,6 +207,7 @@ def test_trader_closes_position_on_stop():
     cfg = AppConfig()
     cfg.execution.lookback_candles = 120
     cfg.execution.min_qty = 0.0001
+    cfg.execution.qty_step = 0.0001
     cfg.strategy.ema_fast = 5
     cfg.strategy.ema_slow = 10
     cfg.strategy.micro_high_lookback = 3

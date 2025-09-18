@@ -27,6 +27,7 @@ execution:
   reduce_only_exits: true
   max_position: 1
   min_qty: 0.001
+  qty_step: 0.001
   poll_interval_seconds: 30
   lookback_candles: 200
   taker_fee_bps: 6.0

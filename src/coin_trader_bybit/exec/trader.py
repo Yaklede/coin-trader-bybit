@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -192,13 +193,16 @@ class Trader:
             )
             qty = limit_qty
 
-        if qty < self.cfg.execution.min_qty:
+        quantized_qty = self._quantize_qty(qty)
+        if quantized_qty <= 0:
             self.log.debug(
-                "Calculated qty %.6f below minimum %.6f",
+                "Calculated qty %.6f below minimum %.6f or step %.6f",
                 qty,
                 self.cfg.execution.min_qty,
+                self.cfg.execution.qty_step,
             )
             return
+        qty = quantized_qty
 
         stop_distance = signal.entry_price - signal.stop_price
 
@@ -316,11 +320,12 @@ class Trader:
             )
             if high >= partial_target:
                 qty_partial = min(trade.qty_total * 0.5, trade.qty_open)
-                if qty_partial < self.cfg.execution.min_qty:
+                qty_partial = self._quantize_qty(qty_partial)
+                if qty_partial <= 0:
                     self.log.debug(
-                        "Skipping partial: qty %.6f below minimum %.6f",
-                        qty_partial,
+                        "Skipping partial: qty below minimum or step (min=%.6f step=%.6f)",
                         self.cfg.execution.min_qty,
+                        self.cfg.execution.qty_step,
                     )
                 elif self._submit_exit_order(
                     qty_partial,
@@ -330,6 +335,7 @@ class Trader:
                 ):
                     trade.partial_taken = True
                     trade.qty_open = max(trade.qty_open - qty_partial, 0.0)
+                    trade.qty_open = round(trade.qty_open, 12)
                     trade.stop_price = max(trade.stop_price, trade.entry_price)
                     self.position = PositionSnapshot(
                         qty=trade.qty_open,
@@ -391,7 +397,18 @@ class Trader:
         if qty <= 0:
             return True
         current_qty = self.position.qty
-        signed_qty = qty if current_qty >= 0 else -qty
+        abs_qty = abs(qty)
+        quantized_qty = self._quantize_qty(abs_qty)
+        if quantized_qty <= 0:
+            self.log.debug(
+                "Exit %s skipped: qty %.6f below minimum %.6f or step %.6f",
+                reason,
+                abs_qty,
+                self.cfg.execution.min_qty,
+                self.cfg.execution.qty_step,
+            )
+            return True
+        signed_qty = quantized_qty if current_qty >= 0 else -quantized_qty
         try:
             order = self.client.close_position_market(
                 symbol=self.cfg.symbol,
@@ -400,9 +417,10 @@ class Trader:
                 reduce_only=self.cfg.execution.reduce_only_exits,
             )
             if current_qty >= 0:
-                remaining_qty = max(current_qty - qty, 0.0)
+                remaining_qty = max(current_qty - quantized_qty, 0.0)
             else:
-                remaining_qty = min(current_qty + qty, 0.0)
+                remaining_qty = min(current_qty + quantized_qty, 0.0)
+            remaining_qty = round(remaining_qty, 12)
             self.position = PositionSnapshot(
                 qty=remaining_qty,
                 entry_price=self.position.entry_price,
@@ -410,11 +428,13 @@ class Trader:
             )
             self._update_metrics(mark_price)
             if self.active_trade is not None:
-                self._register_realized_pnl(self.active_trade, qty, exit_price)
+                self._register_realized_pnl(
+                    self.active_trade, quantized_qty, exit_price
+                )
             self.log.info(
                 "Exit order placed reason=%s qty=%.6f order_id=%s",
                 reason,
-                qty,
+                quantized_qty,
                 order.order_id,
             )
             return True
@@ -469,3 +489,17 @@ class Trader:
             entry_price=self.position.entry_price,
             mark_price=mark_price,
         )
+
+    def _quantize_qty(self, qty: float) -> float:
+        """Snap raw quantity to the configured lot size and minimum."""
+        if qty <= 0:
+            return 0.0
+        step = self.cfg.execution.qty_step
+        min_qty = self.cfg.execution.min_qty
+        if step is not None and step > 0:
+            scaled = math.floor((qty + 1e-12) / step)
+            qty = scaled * step
+        qty = round(qty, 12)
+        if qty < min_qty:
+            return 0.0
+        return qty

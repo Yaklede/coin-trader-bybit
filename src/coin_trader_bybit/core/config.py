@@ -31,6 +31,7 @@ class ExecutionConfig(BaseModel):
     reduce_only_exits: bool = True
     max_position: int = 1
     min_qty: float = 0.001
+    qty_step: float = 0.001
     testnet: bool = True
     poll_interval_seconds: int = 30
     lookback_candles: int = 200
