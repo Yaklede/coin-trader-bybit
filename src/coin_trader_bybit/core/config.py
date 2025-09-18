@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from typing import List
+
+from pydantic import BaseModel, Field
 
 
 class RiskConfig(BaseModel):
@@ -28,6 +30,11 @@ class StrategyConfig(BaseModel):
     use_volume_filter: bool = True
     entry_buffer_pct: float = 0.0
     stop_loss_pct: float | None = None
+    allow_counter_trend_shorts: bool = False
+    volume_timeframes: List[str] = Field(
+        default_factory=lambda: ["1m", "5m", "15m", "1h", "4h"]
+    )
+    volume_tf_mode: str = "any"
 
 
 class ExecutionConfig(BaseModel):

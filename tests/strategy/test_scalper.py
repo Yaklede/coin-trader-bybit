@@ -35,6 +35,9 @@ def _base_cfg(**overrides) -> StrategyConfig:
         use_volume_filter=True,
         entry_buffer_pct=0.01,
         stop_loss_pct=0.02,
+        volume_timeframes=["1m"],
+        volume_tf_mode="any",
+        allow_counter_trend_shorts=True,
     )
     for key, value in overrides.items():
         setattr(cfg, key, value)

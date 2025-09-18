@@ -26,6 +26,14 @@ strategy:
   use_volume_filter: true
   entry_buffer_pct: 0.01
   stop_loss_pct: 0.03
+  allow_counter_trend_shorts: true
+  volume_timeframes:
+    - 1m
+    - 5m
+    - 15m
+    - 1h
+    - 4h
+  volume_tf_mode: any
 execution:
   post_only: false
   reduce_only_exits: true
