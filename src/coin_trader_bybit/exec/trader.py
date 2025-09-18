@@ -69,6 +69,7 @@ class Trader:
             max_live_order_notional_krw=self.cfg.risk.max_live_order_notional_krw,
             usdt_krw_rate=self.cfg.risk.usdt_krw_rate,
         )
+        self._apply_margin_settings()
         interval = _bybit_interval_from_timeframe(self.cfg.strategy.timeframe_entry)
         self.feed = self.feed or BybitDataFeed(
             self.client,
@@ -503,3 +504,19 @@ class Trader:
         if qty < min_qty:
             return 0.0
         return qty
+
+    def _apply_margin_settings(self) -> None:
+        if self.client is None:
+            return
+        configure = getattr(self.client, "configure_margin_and_leverage", None)
+        if configure is None:
+            return
+        try:
+            configure(
+                category=self.cfg.category,
+                symbol=self.cfg.symbol,
+                margin_mode=self.cfg.execution.margin_mode,
+                leverage=self.cfg.execution.leverage,
+            )
+        except Exception as exc:  # pragma: no cover - network failure
+            self.log.warning("Failed to configure margin/leverage: %s", exc)

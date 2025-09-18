@@ -32,6 +32,8 @@ class ExecutionConfig(BaseModel):
     max_position: int = 1
     min_qty: float = 0.001
     qty_step: float = 0.001
+    margin_mode: str = "ISOLATED_MARGIN"
+    leverage: float = 3.0
     testnet: bool = True
     poll_interval_seconds: int = 30
     lookback_candles: int = 200

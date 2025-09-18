@@ -15,6 +15,7 @@ class DummyClient:
         self.orders = []
         self._mark_price = 105.0
         self._position_qty = 0.0
+        self.margin_calls: list[dict[str, object]] = []
 
     def place_market_order(self, **kwargs):
         self.orders.append(kwargs)
@@ -60,6 +61,23 @@ class DummyClient:
             "entry_price": 0.0,
             "mark_price": self._mark_price,
         }
+
+    def configure_margin_and_leverage(
+        self,
+        *,
+        category: str,
+        symbol: str,
+        margin_mode: str,
+        leverage: float,
+    ) -> None:
+        self.margin_calls.append(
+            {
+                "category": category,
+                "symbol": symbol,
+                "margin_mode": margin_mode,
+                "leverage": leverage,
+            }
+        )
 
 
 def _build_trend_records() -> list[KlineRecord]:
@@ -112,6 +130,22 @@ def test_trader_places_order_on_breakout():
     order = client.orders[0]
     assert order["symbol"] == cfg.symbol
     assert order["side"] == "Buy"
+
+
+def test_trader_configures_margin_settings():
+    cfg = AppConfig()
+    cfg.execution.margin_mode = "ISOLATED_MARGIN"
+    cfg.execution.leverage = 2.5
+    feed = MemoryDataFeed(_build_trend_records())
+    client = DummyClient()
+    risk_manager = RiskManager(cfg)
+
+    Trader(cfg, metrics=None, feed=feed, risk_manager=risk_manager, client=client)
+
+    assert client.margin_calls
+    call = client.margin_calls[0]
+    assert call["margin_mode"] == "ISOLATED_MARGIN"
+    assert call["leverage"] == pytest.approx(2.5)
 
 
 def test_trader_quantizes_order_qty():

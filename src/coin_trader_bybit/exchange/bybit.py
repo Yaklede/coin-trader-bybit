@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+import logging
 import os
 
 try:
@@ -43,6 +44,7 @@ class BybitClient:
         self.testnet = testnet
         self.max_live_order_notional_krw = max_live_order_notional_krw
         self.usdt_krw_rate = usdt_krw_rate
+        self.log = logging.getLogger("bybit.client")
 
         if self.usdt_krw_rate <= 0:
             raise ValueError("usdt_krw_rate must be positive")
@@ -51,6 +53,40 @@ class BybitClient:
             self.http = HTTP(testnet=testnet, api_key=api_key, api_secret=api_secret)
         else:  # pragma: no cover
             self.http = None
+
+    def configure_margin_and_leverage(
+        self,
+        *,
+        category: str,
+        symbol: str,
+        margin_mode: str,
+        leverage: float,
+    ) -> None:
+        if not HAVE_PYBIT or self.http is None:
+            return
+        margin_mode_upper = (margin_mode or "").upper()
+        leverage_val = leverage if leverage and leverage > 0 else None
+        leverage_str = f"{leverage_val:.8g}" if leverage_val is not None else None
+
+        if margin_mode_upper:
+            self._attempt_set_margin_mode(margin_mode_upper)
+            trade_mode = None
+            if margin_mode_upper == "ISOLATED_MARGIN":
+                trade_mode = 1
+            elif margin_mode_upper in {"CROSS_MARGIN", "REGULAR_MARGIN"}:
+                trade_mode = 0
+            if trade_mode is not None and leverage_str is not None:
+                self._attempt_switch_trade_mode(
+                    category=category,
+                    symbol=symbol,
+                    trade_mode=trade_mode,
+                    leverage_str=leverage_str,
+                )
+
+        if leverage_str is not None:
+            self._attempt_set_leverage(
+                category=category, symbol=symbol, leverage_str=leverage_str
+            )
 
     def place_market_order(
         self,
@@ -240,3 +276,54 @@ class BybitClient:
             return float(price_str)
         except (TypeError, ValueError):  # pragma: no cover
             return None
+
+    def _attempt_set_margin_mode(self, margin_mode: str) -> None:
+        method = getattr(self.http, "set_margin_mode", None)
+        if method is None:
+            return
+        try:
+            method(setMarginMode=margin_mode)
+        except Exception as exc:  # pragma: no cover - network failure
+            self.log.debug("set_margin_mode failed: %s", exc)
+
+    def _attempt_switch_trade_mode(
+        self,
+        *,
+        category: str,
+        symbol: str,
+        trade_mode: int,
+        leverage_str: str,
+    ) -> None:
+        method = getattr(self.http, "switch_isolated_margin", None)
+        if method is None:
+            method = getattr(self.http, "switch_isolated", None)
+        if method is None:
+            return
+        try:
+            method(
+                category=category,
+                symbol=symbol,
+                tradeMode=trade_mode,
+                buyLeverage=leverage_str,
+                sellLeverage=leverage_str,
+            )
+        except Exception as exc:  # pragma: no cover - network failure
+            self.log.debug("switch_isolated_margin failed: %s", exc)
+
+    def _attempt_set_leverage(
+        self, *, category: str, symbol: str, leverage_str: str
+    ) -> None:
+        method = getattr(self.http, "set_leverage", None)
+        if method is None:
+            method = getattr(self.http, "set_leverage_v5", None)
+        if method is None:
+            return
+        try:
+            method(
+                category=category,
+                symbol=symbol,
+                buyLeverage=leverage_str,
+                sellLeverage=leverage_str,
+            )
+        except Exception as exc:  # pragma: no cover - network failure
+            self.log.debug("set_leverage failed: %s", exc)
