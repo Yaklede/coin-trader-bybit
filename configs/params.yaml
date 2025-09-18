@@ -29,7 +29,7 @@ execution:
   min_qty: 0.001
   qty_step: 0.001
   margin_mode: ISOLATED_MARGIN
-  leverage: 15.0
+  leverage: 4
   position_mode: ONE_WAY
   poll_interval_seconds: 30
   lookback_candles: 200
