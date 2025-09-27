@@ -2,12 +2,15 @@ symbol: BTCUSDT
 category: linear  # bybit v5 category: linear | inverse | option | spot
 mode: paper       # paper | live
 risk:
-  max_risk_per_trade_pct: 0.5
-  daily_stop_r_multiple: -2.0
+  max_risk_per_trade_pct: 0.30
+  daily_stop_r_multiple: -1.0
   cooldown_minutes: 3
   max_live_order_notional_krw: 200000.0
   usdt_krw_rate: 1400.0
   starting_equity: 10000.0
+  daily_max_trades: 2
+  daily_loss_limit_pct: 0.02
+  daily_gain_limit_pct: 0.0125
 strategy:
   name: scalper_v1
   timeframe_entry: 1m
@@ -16,17 +19,69 @@ strategy:
   ema_slow: 200
   atr_period: 14
   atr_mult_stop: 1.0
-  partial_tp_r: 1.5
-  trail_atr_mult: 2.0
-  micro_high_lookback: 2
-  time_stop_minutes: 30
+  partial_tp_r: 0.6
+  partial_take_fraction: 0.30
+  trail_atr_mult: 1.8
+  soft_stop_r: 0.3
+  breakeven_buffer_r: 0.05
+  time_stop_minutes: 180
+  long_partial_tp_r: 0.7
+  long_partial_fraction: 0.30
+  long_trail_atr_mult: 1.8
+  long_time_stop_minutes: 240
+  short_partial_tp_r: 1.0
+  short_partial_fraction: 0.2
+  short_trail_atr_mult: 2.6
+  short_time_stop_minutes: 200
+  range_lookback: 120
+  range_band_pct: 0.0025
+  range_partial_tp_r: 0.4
+  range_partial_fraction: 0.6
+  range_trail_atr_mult: 1.5
+  range_time_stop_minutes: 60
   volume_ma_period: 20
-  volume_threshold_ratio: 1.0
+  volume_threshold_ratio: 1.5
   use_trend_filter: true
   use_volume_filter: true
   entry_buffer_pct: 0.0
-  stop_loss_pct: 0.01
+  stop_loss_pct: null
   allow_counter_trend_shorts: true
+  trend_slope_threshold: 0.0015
+  max_trend_strength: null
+  min_atr_pct: 0.0008
+  support_resistance_lookback: 60
+  pattern_ticks: 3
+  bounce_tolerance_pct: 0.001
+  min_stop_distance_pct: 0.003
+  support_stop_weight: 1.0
+  # Require a stronger positive slope on anchor slow EMA for trend entries
+  anchor_trend_slope_min_pct: 0.0003
+  rsi_period: 14
+  rsi_buy_threshold: 45.0
+  rsi_sell_threshold: 55.0
+  ema_pullback_pct: 0.0030
+  regime_trend_min: 0.0027
+  regime_atr_min_pct: 0.0007
+  regime_atr_max_pct: 0.0018
+  impulse_volume_ratio: 1.6
+  fast_market_volume_ratio: 3.2
+  fast_market_atr_pct: 0.0018
+  fast_market_tp_r: 0.9
+  fast_market_partial_fraction: 0.25
+  fast_market_time_stop_minutes: 45
+  fast_market_trail_atr_mult: 1.2
+  avoid_fast_market_entries: true
+  enable_range_trades: false
+  impulse_min_persist: 1
+  impulse_window_bars: 6
+  ema_pullback_atr_mult: 0.0
+  signal_cooldown_minutes: 10
+  allowed_hours:
+    - [12, 23]
+  enable_breakout_entries: true
+  micro_high_lookback: 60
+  micro_low_lookback: 60
+  breakout_band_pct: 0.0005
   volume_timeframes:
     - 1m
     - 5m
@@ -35,7 +90,7 @@ strategy:
     - 4h
   volume_tf_mode: any
 execution:
-  post_only: false
+  post_only: true
   reduce_only_exits: true
   max_position: 1
   min_qty: 0.001
@@ -47,6 +102,7 @@ execution:
   lookback_candles: 360
   taker_fee_bps: 6.0
   slippage_bps: 5.0
+  maker_fee_bps: 0.0
 logging:
   level: DEBUG
   dir: logs

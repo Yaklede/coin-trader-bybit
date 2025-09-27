@@ -1,0 +1,123 @@
+symbol: BTCUSDT
+category: linear
+mode: paper
+risk:
+  max_risk_per_trade_pct: 0.80
+  daily_stop_r_multiple: -1.5
+  cooldown_minutes: 5
+  max_live_order_notional_krw: 200000.0
+  usdt_krw_rate: 1400.0
+  starting_equity: 10000.0
+  daily_max_trades: 2
+  daily_loss_limit_pct: 0.03
+  daily_gain_limit_pct: 0.02
+strategy:
+  name: swing_v1
+  timeframe_entry: 15m
+  timeframe_anchor: 4h
+  ema_fast: 50
+  ema_slow: 200
+  atr_period: 14
+  atr_mult_stop: 1.8
+  partial_tp_r: 0.0
+  partial_take_fraction: 0.0
+  trail_atr_mult: 0.0
+  soft_stop_r: 0.3
+  breakeven_buffer_r: 0.1
+  time_stop_minutes: 1440  # one day max hold
+  long_partial_tp_r: 2.0
+  long_partial_fraction: 0.0
+  long_trail_atr_mult: 3.5
+  long_time_stop_minutes: 4320
+  short_partial_tp_r: 1.2
+  short_partial_fraction: 0.3
+  short_trail_atr_mult: 2.2
+  short_time_stop_minutes: 4320
+  range_lookback: 96
+  range_band_pct: 0.005
+  range_partial_tp_r: 0.8
+  range_partial_fraction: 0.5
+  range_trail_atr_mult: 2.0
+  range_time_stop_minutes: 1440
+  volume_ma_period: 50
+  volume_threshold_ratio: 1.0
+  use_trend_filter: true
+  use_volume_filter: false
+  entry_buffer_pct: 0.0
+  stop_loss_pct: null
+  allow_counter_trend_shorts: true
+  trend_slope_threshold: 0.001
+  max_trend_strength: null
+  min_atr_pct: 0.0008
+  support_resistance_lookback: 60
+  pattern_ticks: 3
+  bounce_tolerance_pct: 0.001
+  min_stop_distance_pct: 0.006
+  support_stop_weight: 0.0
+  anchor_trend_slope_min_pct: 0.0004
+  adx_period: 14
+  anchor_adx_min: 14
+  rsi_period: 14
+  rsi_buy_threshold: 50.0
+  rsi_sell_threshold: 55.0
+  ema_pullback_pct: 0.0025
+  regime_trend_min: 0.0
+  regime_atr_min_pct: 0.0008
+  regime_atr_max_pct: 0.0030
+  impulse_volume_ratio: 1.0
+  fast_market_volume_ratio: 10.0
+  fast_market_atr_pct: 10.0
+  fast_market_tp_r: 1.0
+  fast_market_partial_fraction: 1.0
+  fast_market_time_stop_minutes: 1440
+  fast_market_trail_atr_mult: 1.0
+  avoid_fast_market_entries: true
+  enable_range_trades: false
+  impulse_min_persist: 1
+  impulse_window_bars: 8
+  ema_pullback_atr_mult: 0.0
+  signal_cooldown_minutes: 180
+  allowed_hours: []
+  enable_breakout_entries: true
+  micro_high_lookback: 96
+  micro_low_lookback: 96
+  breakout_band_pct: 0.0003
+  enable_daily_breakout: true
+  daily_breakout_band_pct: 0.0002
+  enable_pullback_entries: false
+  prebreakout_atr_pct_max_pctile: 0.5
+  require_nr7: true
+  swing_partial_tp_r1: 0.8
+  swing_partial_fraction1: 0.33
+  swing_partial_tp_r2: 1.5
+  swing_partial_fraction2: 0.33
+  swing_trail_atr_mult: 2.0
+  enable_pyramiding: true
+  pyramid_r_levels: [0.8, 1.6]
+  pyramid_add_fractions: [0.5, 0.5]
+  pyramid_move_stop_to_breakeven: true
+  volume_timeframes: ["1h", "4h"]
+  volume_tf_mode: any
+execution:
+  post_only: true
+  reduce_only_exits: true
+  max_position: 1
+  min_qty: 0.001
+  qty_step: 0.001
+  margin_mode: ISOLATED_MARGIN
+  leverage: 2
+  position_mode: ONE_WAY
+  poll_interval_seconds: 60
+  lookback_candles: 360
+  taker_fee_bps: 6.0
+  slippage_bps: 5.0
+  maker_fee_bps: 0.0
+logging:
+  level: INFO
+  dir: logs
+  json_output: true
+monitoring:
+  enable_metrics: true
+  host: 0.0.0.0
+  port: 9000
+  recent_trades: 5

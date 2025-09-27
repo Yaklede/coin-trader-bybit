@@ -65,3 +65,19 @@ def test_daily_stop_resets_each_day() -> None:
 
     assert rm.daily_stop_active() is False
     assert rm.daily_r_total() == 0.0
+
+
+def test_daily_trade_limit_blocks_entries() -> None:
+    cfg = AppConfig()
+    cfg.risk.daily_max_trades = 2
+    rm = RiskManager(cfg)
+    snapshot = PositionSnapshot(qty=0.0, entry_price=0.0, mark_price=0.0)
+
+    assert rm.can_open_position(existing_position=snapshot, cooldown_active=False)
+    rm.record_trade_open()
+    assert rm.can_open_position(existing_position=snapshot, cooldown_active=False)
+    rm.record_trade_open()
+    assert not rm.can_open_position(existing_position=snapshot, cooldown_active=False)
+
+    rm._daily_snapshot_date = rm._daily_snapshot_date - timedelta(days=1)
+    assert rm.can_open_position(existing_position=snapshot, cooldown_active=False)

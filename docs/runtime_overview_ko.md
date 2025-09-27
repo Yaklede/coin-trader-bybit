@@ -20,7 +20,7 @@
 - 각 청산은 실현 PnL을 누적하여 R 배수로 환산하고, `RiskManager`가 일일 손실/이익 합계를 관리한다. 일일 한도를 초과하면 당일 추가 진입이 차단된다.
 
 ## 백테스트
-- 동일한 전략 지표와 포지션 규칙을 `Backtester`가 재현한다. 부분청산·ATR 트레일·시간 종료·슬리피지·수수료를 반영하여 `BacktestReport`(거래 리스트, 에쿼티 커브, PnL 지표)를 반환한다.
+- 동일한 전략 지표와 포지션 규칙을 `Backtester`가 재현한다. 부분청산·ATR 트레일·시간 종료·슬리피지·수수료를 반영하여 `BacktestReport`(거래 리스트, 에쿼티 커브, PnL 지표)를 반환한다. 또한 `risk.daily_loss_limit_pct`(예: -2%)·`risk.daily_gain_limit_pct`(예: +1%)와 `risk.daily_max_trades`를 준수하여, 당일 손실/이익 한도 도달 시 추가 진입을 차단한다.
 
 ## 위험 관리
 - 포지션 사이징은 `RiskManager.position_size(entry_price, stop_price, side)`가 `(에쿼티 × 위험%) ÷ (손절 거리)` 공식을 적용하며 롱/숏 양방향을 모두 지원한다.

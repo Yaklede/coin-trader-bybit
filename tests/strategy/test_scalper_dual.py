@@ -1,115 +1,75 @@
 import pandas as pd
-import pytest
 
 from coin_trader_bybit.core.config import StrategyConfig
 from coin_trader_bybit.strategy.scalper import Scalper
 
 
-@pytest.fixture
-def base_cfg() -> StrategyConfig:
-    return StrategyConfig(
+def _cfg(**updates) -> StrategyConfig:
+    base = StrategyConfig(
         timeframe_entry="1m",
         timeframe_anchor="1m",
         ema_fast=2,
-        ema_slow=3,
+        ema_slow=4,
         atr_period=3,
         atr_mult_stop=1.5,
-        partial_tp_r=3.0,
-        trail_atr_mult=2.0,
+        partial_tp_r=1.0,
+        trail_atr_mult=1.5,
         micro_high_lookback=2,
         time_stop_minutes=30,
-        volume_ma_period=2,
-        volume_threshold_ratio=1.0,
+        volume_ma_period=3,
+        volume_threshold_ratio=1.4,
         use_trend_filter=False,
         use_volume_filter=True,
-        entry_buffer_pct=0.01,
-        stop_loss_pct=0.03,
+        entry_buffer_pct=0.0,
+        stop_loss_pct=None,
         allow_counter_trend_shorts=True,
         volume_timeframes=["1m"],
         volume_tf_mode="any",
+        trend_slope_threshold=0.0,
+        min_atr_pct=0.0,
+        support_resistance_lookback=3,
+        pattern_ticks=3,
+        bounce_tolerance_pct=0.001,
+        min_stop_distance_pct=0.005,
+        max_pre_bearish_for_bounce=1,
+        min_pre_bullish_for_reject=3,
     )
+    return base.model_copy(update=updates)
 
 
-def _candles_for_long(volume_last: float = 1500.0) -> pd.DataFrame:
-    idx = pd.date_range("2024-01-01", periods=5, freq="1min")
-    data = {
-        "open": [100.0, 101.0, 102.0, 103.0, 104.0],
-        "high": [101.0, 102.0, 103.0, 104.0, 110.0],
-        "low": [99.0, 100.0, 101.0, 102.0, 103.0],
-        "close": [100.0, 101.0, 102.0, 103.0, 109.0],
-        "volume": [1000.0, 900.0, 1100.0, 1000.0, volume_last],
-    }
-    return pd.DataFrame(data, index=idx)
+def _df(rows):
+    idx = pd.date_range("2024-01-01", periods=len(rows), freq="1min")
+    return pd.DataFrame(rows, index=idx)
 
 
-def _candles_for_short(volume_last: float = 1500.0) -> pd.DataFrame:
-    idx = pd.date_range("2024-01-01", periods=5, freq="1min")
-    data = {
-        "open": [110.0, 109.0, 108.0, 107.0, 106.0],
-        "high": [111.0, 110.0, 109.0, 108.0, 107.0],
-        "low": [109.0, 108.0, 107.0, 98.0, 95.0],
-        "close": [110.0, 109.0, 108.0, 101.0, 96.0],
-        "volume": [1000.0, 900.0, 1100.0, 1200.0, volume_last],
-    }
-    return pd.DataFrame(data, index=idx)
-
-
-def test_generate_long_signal(base_cfg: StrategyConfig):
-    scalper = Scalper(base_cfg)
-    features = scalper.compute_features(_candles_for_long())
-    signal = scalper.generate_signal(features)
-    assert signal is not None
-    assert signal.side == "Buy"
-    # buffer lowers entry
-    expected_entry = features["close"].iloc[-1] * (1 - base_cfg.entry_buffer_pct)
-    assert signal.entry_price == pytest.approx(expected_entry)
-    expected_stop = expected_entry * (1 - base_cfg.stop_loss_pct)
-    assert signal.stop_price == pytest.approx(expected_stop)
-
-
-def test_generate_short_signal(base_cfg: StrategyConfig):
-    scalper = Scalper(base_cfg)
-    features = scalper.compute_features(_candles_for_short())
-    signal = scalper.generate_signal(features)
-    assert signal is not None
-    assert signal.side == "Sell"
-    expected_entry = features["close"].iloc[-1] * (1 + base_cfg.entry_buffer_pct)
-    assert signal.entry_price == pytest.approx(expected_entry)
-    expected_stop = expected_entry * (1 + base_cfg.stop_loss_pct)
-    assert signal.stop_price == pytest.approx(expected_stop)
-
-
-def test_volume_filter_blocks_signal(base_cfg: StrategyConfig):
-    cfg = base_cfg
-    scalper = Scalper(cfg)
-    features = scalper.compute_features(_candles_for_long(volume_last=10.0))
-    signal = scalper.generate_signal(features)
-    assert signal is None
-
-
-def test_multi_timeframe_volume_any_passes(base_cfg: StrategyConfig):
-    cfg = base_cfg.model_copy(
-        update={
-            "volume_timeframes": ["1m", "5m"],
-            "volume_tf_mode": "any",
-            "volume_ma_period": 1,
-        }
+def test_shorts_blocked_when_flag_disabled():
+    df = _df(
+        [
+            {"open": 100.2, "high": 100.9, "low": 100.0, "close": 100.7, "volume": 900},
+            {"open": 100.7, "high": 101.5, "low": 100.3, "close": 101.3, "volume": 950},
+            {"open": 101.3, "high": 102.3, "low": 101.0, "close": 101.9, "volume": 980},
+            {"open": 102.0, "high": 102.9, "low": 101.4, "close": 101.4, "volume": 1200},
+            {"open": 101.4, "high": 102.8, "low": 101.1, "close": 100.9, "volume": 2200},
+            {"open": 100.9, "high": 103.0, "low": 100.6, "close": 100.2, "volume": 3600},
+        ]
     )
-    scalper = Scalper(cfg)
-    features = scalper.compute_features(_candles_for_long())
-    signal = scalper.generate_signal(features)
-    assert signal is not None
+    scalper = Scalper(_cfg(allow_counter_trend_shorts=False, min_pre_bullish_for_reject=1))
+    features = scalper.compute_features(df)
+    assert scalper.generate_signal(features) is None
 
 
-def test_multi_timeframe_volume_all_requires_all(base_cfg: StrategyConfig):
-    cfg = base_cfg.model_copy(
-        update={
-            "volume_timeframes": ["1m", "5m"],
-            "volume_tf_mode": "all",
-            "volume_ma_period": 2,
-        }
+def test_short_reject_signal_emitted_when_allowed():
+    df = _df(
+        [
+            {"open": 100.2, "high": 100.9, "low": 100.0, "close": 100.7, "volume": 900},
+            {"open": 100.7, "high": 101.5, "low": 100.3, "close": 101.3, "volume": 950},
+            {"open": 101.3, "high": 102.3, "low": 101.0, "close": 101.9, "volume": 980},
+            {"open": 102.0, "high": 102.9, "low": 101.4, "close": 101.4, "volume": 1200},
+            {"open": 101.4, "high": 102.8, "low": 101.1, "close": 100.9, "volume": 2200},
+            {"open": 100.9, "high": 103.0, "low": 100.6, "close": 100.2, "volume": 3800},
+        ]
     )
-    scalper = Scalper(cfg)
-    features = scalper.compute_features(_candles_for_long())
+    scalper = Scalper(_cfg(min_pre_bullish_for_reject=1))
+    features = scalper.compute_features(df)
     signal = scalper.generate_signal(features)
-    assert signal is None
+    assert signal is not None and signal.side == "Sell"

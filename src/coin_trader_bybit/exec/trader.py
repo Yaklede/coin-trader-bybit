@@ -14,7 +14,8 @@ from ..data.feed import BybitDataFeed, DataFeed
 from ..exchange.bybit import BybitClient
 from ..monitoring import MetricsCollector, TradeRecord
 from ..risk.manager import PositionSnapshot, RiskManager
-from ..strategy.scalper import Scalper, timeframe_to_pandas_freq, Side
+from ..strategy import create_strategy, timeframe_to_pandas_freq
+from ..strategy.scalper import Side
 
 
 def _bybit_interval_from_timeframe(timeframe: str) -> str:
@@ -81,7 +82,7 @@ class Trader:
             category=self.cfg.category,
             interval=interval,
         )
-        self.strategy = Scalper(self.cfg.strategy)
+        self.strategy = create_strategy(self.cfg.strategy)
         self.risk_manager = self.risk_manager or RiskManager(self.cfg)
         self.poll_interval = max(int(self.cfg.execution.poll_interval_seconds), 1)
         self.position = PositionSnapshot(qty=0.0, entry_price=0.0, mark_price=0.0)
@@ -181,7 +182,52 @@ class Trader:
             self.log.debug("Risk manager blocked new position")
             return
 
+        # Dynamic risk multiplier (mirrors backtester)
+        def _risk_multiplier(row: pd.Series, reason: str, side: str) -> float:
+            cfgs = self.cfg.strategy
+            m = max(cfgs.risk_mult_base, 0.0)
+            rl = (reason or "").lower()
+            if "breakout" in rl:
+                m *= max(cfgs.risk_mult_breakout, 0.0)
+            if "pullback" in rl:
+                m *= max(cfgs.risk_mult_pullback, 0.0)
+            m *= (cfgs.risk_mult_long if side == "Buy" else cfgs.risk_mult_short)
+            if bool(row.get("fast_market", False)):
+                m *= max(cfgs.risk_mult_fast_market, 0.0)
+            atr_pct = float(row.get("atr_pct", 0.0) or 0.0)
+            if atr_pct > 0:
+                if atr_pct <= cfgs.risk_atr_low:
+                    m *= max(cfgs.risk_mult_atr_low, 0.0)
+                elif atr_pct >= cfgs.risk_atr_high:
+                    m *= max(cfgs.risk_mult_atr_high, 0.0)
+            cap = max(cfgs.risk_mult_cap, 0.1)
+            return min(max(m, 0.1), cap)
+
+        # Dynamic leverage schedule (live effect only)
+        def _leverage(row: pd.Series, side: str) -> float:
+            s = self.cfg.strategy
+            lev = max(s.leverage_base, 1.0)
+            up = bool(row.get("regime_up", False))
+            down = bool(row.get("regime_down", False))
+            if up:
+                lev = max(s.leverage_uptrend, lev)
+            if down:
+                lev = max(s.leverage_downtrend, lev)
+            if bool(row.get("fast_market", False)):
+                lev = min(lev, max(s.leverage_fast_market, 1.0))
+            return min(lev, max(s.leverage_cap, lev))
+
+        latest = features.iloc[-1]
+        risk_mult = _risk_multiplier(latest, signal.reason, signal.side)
         try:
+            qty = self.risk_manager.position_size(
+                entry_price=signal.entry_price,
+                stop_price=signal.stop_price,
+                side=signal.side,
+                risk_pct_override=self.cfg.risk.max_risk_per_trade_pct * risk_mult,
+            )
+        except TypeError:
+            # Backward compatibility for custom RiskManager without override arg
             qty = self.risk_manager.position_size(
                 entry_price=signal.entry_price,
                 stop_price=signal.stop_price,
@@ -214,6 +260,16 @@ class Trader:
         stop_distance = abs(signal.entry_price - signal.stop_price)
 
         try:
+            # Apply dynamic leverage immediately before order
+            if self.cfg.strategy.allow_dynamic_leverage:
+                lev = _leverage(latest, signal.side)
+                self.client.configure_margin_and_leverage(
+                    category=self.cfg.category,
+                    symbol=self.cfg.symbol,
+                    margin_mode=self.cfg.execution.margin_mode,
+                    leverage=lev,
+                    position_mode=self.cfg.execution.position_mode,
+                )
             order = self.client.place_market_order(
                 symbol=self.cfg.symbol,
                 side=signal.side,
@@ -227,6 +283,7 @@ class Trader:
                 entry_price=signal.entry_price,
                 mark_price=mark_price,
             )
+            self.risk_manager.record_trade_open()
             self.last_signal_ts = signal.timestamp
             self.risk_manager.trigger_cooldown()
             trade = ActiveTrade(

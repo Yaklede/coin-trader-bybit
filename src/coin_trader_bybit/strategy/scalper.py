@@ -21,6 +21,7 @@ class Signal:
     stop_price: float
     atr: float
     reason: str
+    fast_market: bool = False
 
 
 def timeframe_to_pandas_freq(value: str) -> str:
@@ -53,6 +54,17 @@ def _compute_atr(data: pd.DataFrame, period: int) -> pd.Series:
     return tr.rolling(window=period, min_periods=period).mean()
 
 
+def _compute_rsi(series: pd.Series, period: int) -> pd.Series:
+    delta = series.diff()
+    gain = delta.clip(lower=0.0)
+    loss = -delta.clip(upper=0.0)
+    avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    rs = avg_gain / avg_loss.replace(0.0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+    return rsi.fillna(50.0)
+
+
 class Scalper:
     """Implements the breakout-with-trend rules used by the bot."""
 
@@ -67,98 +79,233 @@ class Scalper:
             raise ValueError(f"data missing required columns: {missing}")
 
         df = data.copy()
+        df = df.sort_index()
+
+        df["ema_fast"] = df["close"].ewm(span=self.cfg.ema_fast, adjust=False).mean()
+        df["ema_slow"] = df["close"].ewm(span=self.cfg.ema_slow, adjust=False).mean()
+        trend_strength = (df["ema_fast"] - df["ema_slow"]) / df["ema_slow"].replace(0.0, np.nan)
+        df["trend_strength"] = trend_strength.fillna(0.0)
+        slope_lookback = max(self.cfg.trend_confirm_lookback, 1)
+        ema_slow_prev = df["ema_slow"].shift(slope_lookback)
+        trend_slope_pct = (df["ema_slow"] - ema_slow_prev) / ema_slow_prev.replace(0.0, np.nan)
+        df["trend_slope_pct"] = trend_slope_pct.fillna(0.0)
+        df["ema_slow_prev"] = ema_slow_prev
+
         if self.cfg.use_trend_filter:
             anchor_freq = timeframe_to_pandas_freq(self.cfg.timeframe_anchor)
-            close_anchor = df["close"].resample(anchor_freq).last()
-            ema_fast = close_anchor.ewm(span=self.cfg.ema_fast, adjust=False).mean()
-            ema_slow = close_anchor.ewm(span=self.cfg.ema_slow, adjust=False).mean()
-            trend_up = (
-                (ema_fast > ema_slow).reindex(df.index, method="ffill").fillna(False)
-            )
+            anchor_close = df["close"].resample(anchor_freq).last()
+            anchor_fast = anchor_close.ewm(span=self.cfg.ema_fast, adjust=False).mean()
+            anchor_slow = anchor_close.ewm(span=self.cfg.ema_slow, adjust=False).mean()
+            anchor_fast_i = anchor_fast.reindex(df.index, method="ffill").fillna(df["close"])
+            anchor_slow_i = anchor_slow.reindex(df.index, method="ffill").fillna(df["close"])
+            df["anchor_ema_fast"] = anchor_fast_i
+            df["anchor_ema_slow"] = anchor_slow_i
+            # Anchor trend strength and slope (measured on resampled series but aligned to entry index)
+            anchor_strength = (anchor_fast_i - anchor_slow_i) / anchor_slow_i.replace(0.0, np.nan)
+            df["anchor_trend_strength"] = anchor_strength.fillna(0.0)
+            slope_lookback = max(self.cfg.trend_confirm_lookback, 1)
+            anchor_slow_prev = anchor_slow_i.shift(slope_lookback)
+            anchor_trend_slope_pct = (anchor_slow_i - anchor_slow_prev) / anchor_slow_prev.replace(0.0, np.nan)
+            df["anchor_trend_slope_pct"] = anchor_trend_slope_pct.fillna(0.0)
         else:
-            trend_up = pd.Series(True, index=df.index)
+            df["anchor_ema_fast"] = df["ema_fast"]
+            df["anchor_ema_slow"] = df["ema_slow"]
+            df["anchor_trend_strength"] = df["trend_strength"]
+            df["anchor_trend_slope_pct"] = df["trend_slope_pct"]
 
-        df["trend_up"] = trend_up
         df["atr"] = _compute_atr(df, self.cfg.atr_period)
+        df["atr_pct"] = (df["atr"] / df["close"].replace(0.0, np.nan)).fillna(0.0)
+        df["rsi"] = _compute_rsi(df["close"], self.cfg.rsi_period)
 
-        lookback = max(self.cfg.micro_high_lookback, 1)
-        rolling_high = df["high"].rolling(window=lookback, min_periods=1).max()
-        rolling_low = df["low"].rolling(window=lookback, min_periods=1).min()
-        df["micro_high"] = rolling_high.shift(1)
-        df["micro_low"] = rolling_low.shift(1)
-        df["long_breakout"] = (df["high"] > df["micro_high"]) & df["trend_up"]
-        df["short_breakout"] = (df["low"] < df["micro_low"]) & (~df["trend_up"])
-        df["weak_short_breakout"] = df["low"] < df["micro_low"]
+        volume_ma = df["volume"].rolling(window=self.cfg.volume_ma_period, min_periods=1).mean()
+        df["volume_ma"] = volume_ma
+        df["volume_ratio"] = (df["volume"] / volume_ma.replace(0.0, np.nan)).fillna(0.0)
 
-        if self.cfg.use_volume_filter:
-            volume_checks = []
-            for timeframe in self.cfg.volume_timeframes or [self.cfg.timeframe_entry]:
-                freq = timeframe_to_pandas_freq(timeframe)
-                vol_series = (
-                    df["volume"].resample(freq).sum()
-                    if timeframe != self.cfg.timeframe_entry
-                    else df["volume"]
-                )
-                ma = vol_series.rolling(
-                    window=self.cfg.volume_ma_period,
-                    min_periods=self.cfg.volume_ma_period,
-                ).mean()
-                ratio_ok = vol_series >= ma * self.cfg.volume_threshold_ratio
-                ratio_ok = ratio_ok.reindex(df.index, method="ffill").fillna(False)
-                volume_checks.append(ratio_ok.rename(f"volume_ok_{timeframe}"))
+        fast_market = (
+            (df["volume_ratio"] >= self.cfg.fast_market_volume_ratio)
+            & (df["atr_pct"] >= self.cfg.fast_market_atr_pct)
+        )
+        df["fast_market"] = fast_market.fillna(False)
 
-            if volume_checks:
-                volume_matrix = pd.concat(volume_checks, axis=1)
-                if self.cfg.volume_tf_mode.lower() == "all":
-                    volume_ok_combined = volume_matrix.all(axis=1)
-                else:
-                    volume_ok_combined = volume_matrix.any(axis=1)
-                df = df.join(volume_matrix, how="left")
-                df["volume_ma"] = (
-                    df["volume"].rolling(
-                        window=self.cfg.volume_ma_period,
-                        min_periods=self.cfg.volume_ma_period,
-                    ).mean()
-                )
-                df["volume_ok"] = volume_ok_combined
-            else:
-                df["volume_ma"] = pd.Series(np.nan, index=df.index)
-                df["volume_ok"] = True
-        else:
-            df["volume_ma"] = pd.Series(np.nan, index=df.index)
-            df["volume_ok"] = True
+        trend_up = df["trend_strength"] >= self.cfg.regime_trend_min
+        trend_down = df["trend_strength"] <= -self.cfg.regime_trend_min
+        atr_ok = (df["atr_pct"] >= self.cfg.regime_atr_min_pct) & (df["atr_pct"] <= self.cfg.regime_atr_max_pct)
+        impulse_ok = df["volume_ratio"] >= self.cfg.impulse_volume_ratio
+        slope_ok_up = df["trend_slope_pct"] >= self.cfg.trend_slope_min_pct
+        slope_ok_down = df["trend_slope_pct"] <= -self.cfg.trend_slope_min_pct
+
+        # Optional higher timeframe slope gate
+        anchor_slope_min = float(self.cfg.anchor_trend_slope_min_pct)
+        anchor_slope_ok_up = df["anchor_trend_slope_pct"] >= anchor_slope_min
+        anchor_slope_ok_down = df["anchor_trend_slope_pct"] <= -anchor_slope_min if anchor_slope_min > 0 else True
+
+        gate_up = trend_up & atr_ok & impulse_ok & slope_ok_up
+        gate_down = trend_down & atr_ok & impulse_ok & slope_ok_down
+        if self.cfg.use_trend_filter:
+            gate_up = gate_up & anchor_slope_ok_up
+            gate_down = gate_down & anchor_slope_ok_down
+
+        df["regime_trend_up"] = gate_up.fillna(False)
+        df["regime_trend_down"] = gate_down.fillna(False)
+        df["regime_range"] = (~df["regime_trend_up"] & ~df["regime_trend_down"]).fillna(False)
+
+        range_lookback = max(self.cfg.range_lookback, 20)
+        range_high = df["close"].rolling(window=range_lookback, min_periods=range_lookback).max().shift(1)
+        range_low = df["close"].rolling(window=range_lookback, min_periods=range_lookback).min().shift(1)
+        df["range_high"] = range_high
+        df["range_low"] = range_low
+
+        # Micro structure highs/lows for breakout logic
+        mh = max(self.cfg.micro_high_lookback, 3)
+        ml = max(self.cfg.micro_low_lookback, 3)
+        df["micro_high"] = df["high"].rolling(window=mh, min_periods=mh).max().shift(1)
+        df["micro_low"] = df["low"].rolling(window=ml, min_periods=ml).min().shift(1)
+
         return df
 
     def generate_signal(self, features: pd.DataFrame) -> Optional[Signal]:
         if features.empty:
             return None
         latest = features.iloc[-1]
-        if self.cfg.use_volume_filter and not bool(latest.get("volume_ok", False)):
-            return None
+        ts = features.index[-1]
 
-        long_candidate = bool(latest.get("long_breakout", False))
-        short_candidate = bool(latest.get("short_breakout", False))
-        if not short_candidate and self.cfg.allow_counter_trend_shorts:
-            short_candidate = bool(latest.get("weak_short_breakout", False))
-        if not long_candidate and not short_candidate:
+        # Time-of-day gate (UTC). If allowed_hours is provided, require ts.hour to be inside any window.
+        if self.cfg.allowed_hours:
+            hour = int(pd.Timestamp(ts).tz_convert("UTC").hour if getattr(ts, "tzinfo", None) else pd.Timestamp(ts, tz="UTC").hour)
+            in_any = False
+            for win in self.cfg.allowed_hours:
+                if len(win) != 2:
+                    continue
+                start, end = int(win[0]) % 24, int(win[1]) % 24
+                if start <= end:
+                    if start <= hour <= end:
+                        in_any = True
+                        break
+                else:
+                    if hour >= start or hour <= end:
+                        in_any = True
+                        break
+            if not in_any:
+                return None
+
+        volume_ratio = float(latest.get("volume_ratio", 0.0))
+        if self.cfg.use_volume_filter and volume_ratio < self.cfg.volume_threshold_ratio:
             return None
 
         atr_val = float(latest.get("atr", 0.0) or 0.0)
-        if self.cfg.stop_loss_pct is None and atr_val <= 0:
+        if atr_val <= 0:
             return None
 
         close_price = float(latest["close"])
-        side, entry_price, stop_price = self._build_signal_prices(
-            close_price=close_price,
-            atr_val=atr_val,
-            long_candidate=long_candidate,
-            short_candidate=short_candidate,
-        )
-        if side is None or entry_price is None or stop_price is None:
+        if close_price <= 0:
+            return None
+
+        atr_pct = atr_val / close_price
+        if self.cfg.min_atr_pct and atr_pct < self.cfg.min_atr_pct:
+            return None
+        if atr_pct < self.cfg.regime_atr_min_pct:
+            return None
+        if self.cfg.regime_atr_max_pct and atr_pct > self.cfg.regime_atr_max_pct:
+            return None
+
+        ema_fast = float(latest.get("ema_fast", close_price))
+        ema_slow = float(latest.get("ema_slow", close_price))
+        trend_strength = float(latest.get("trend_strength", 0.0) or 0.0)
+
+        max_strength = self.cfg.max_trend_strength
+        if max_strength is not None and abs(trend_strength) > max_strength:
+            return None
+
+        trend_up_flag = bool(latest.get("regime_trend_up", False))
+        trend_down_flag = bool(latest.get("regime_trend_down", False))
+        range_flag = bool(latest.get("regime_range", False))
+
+        rsi_val = float(latest.get("rsi", 50.0))
+        pullback_buffer = max(self.cfg.ema_pullback_pct, 0.0)
+        close_to_ema_fast = abs(close_price - ema_fast) / close_price <= pullback_buffer
+
+        # ATR-normalized pullback distance gate
+        if self.cfg.ema_pullback_atr_mult and atr_val > 0:
+            close_to_ema_fast = close_to_ema_fast and (
+                abs(close_price - ema_fast) <= self.cfg.ema_pullback_atr_mult * atr_val
+            )
+
+        # Recent impulse gate: allow impulse on any of the last W bars, optionally requiring at least N occurrences
+        win = max(int(self.cfg.impulse_window_bars), 1)
+        recent = features.iloc[-win:]
+        recent_impulses = (recent["volume_ratio"] >= self.cfg.impulse_volume_ratio).sum()
+        impulse_ok = recent_impulses >= max(int(self.cfg.impulse_min_persist), 1)
+
+        fast_market = bool(latest.get("fast_market", False))
+        if self.cfg.avoid_fast_market_entries and fast_market:
+            return None
+
+        side: Optional[Side] = None
+        reason = ""
+
+        if (
+            trend_up_flag
+            and impulse_ok
+            and close_price <= ema_fast
+            and close_to_ema_fast
+            and rsi_val <= self.cfg.rsi_buy_threshold
+        ):
+            side = "Buy"
+            reason = "trend pullback long"
+        elif (
+            self.cfg.allow_counter_trend_shorts
+            and trend_down_flag
+            and impulse_ok
+            and close_price >= ema_fast
+            and close_to_ema_fast
+            and rsi_val >= self.cfg.rsi_sell_threshold
+        ):
+            side = "Sell"
+            reason = "trend pullback short"
+        elif self.cfg.enable_range_trades and range_flag and volume_ratio <= self.cfg.volume_threshold_ratio:
+            range_high = float(latest.get("range_high", float("nan")))
+            range_low = float(latest.get("range_low", float("nan")))
+            band_pct = max(self.cfg.range_band_pct, 0.0)
+            if not np.isnan(range_low) and close_price <= range_low * (1 + band_pct) and rsi_val <= self.cfg.rsi_buy_threshold:
+                side = "Buy"
+                reason = "range long"
+            elif self.cfg.allow_counter_trend_shorts and not np.isnan(range_high) and close_price >= range_high * (1 - band_pct) and rsi_val >= self.cfg.rsi_sell_threshold:
+                side = "Sell"
+                reason = "range short"
+        elif self.cfg.enable_breakout_entries:
+            band = max(self.cfg.breakout_band_pct, 0.0)
+            micro_high = float(latest.get("micro_high", float("nan")))
+            micro_low = float(latest.get("micro_low", float("nan")))
+            if trend_up_flag and impulse_ok and not np.isnan(micro_high):
+                if close_price >= micro_high * (1 + band) and close_price >= ema_fast:
+                    side = "Buy"
+                    reason = "breakout long"
+            elif self.cfg.allow_counter_trend_shorts and trend_down_flag and impulse_ok and not np.isnan(micro_low):
+                if close_price <= micro_low * (1 - band) and close_price <= ema_fast:
+                    side = "Sell"
+                    reason = "breakout short"
+
+        if side is None:
+            return None
+
+        entry_price = close_price
+        min_stop_pct = max(self.cfg.min_stop_distance_pct or 0.0, 0.0)
+        min_stop_offset = entry_price * min_stop_pct
+        atr_offset = atr_val * self.cfg.atr_mult_stop
+        ema_offset = abs(entry_price - ema_fast) * max(self.cfg.support_stop_weight, 0.0)
+        range_high = float(latest.get("range_high", float("nan")))
+        range_low = float(latest.get("range_low", float("nan")))
+        range_offset = 0.0
+        if side == "Buy" and not np.isnan(range_low):
+            range_offset = max(range_offset, abs(entry_price - range_low))
+        if side == "Sell" and not np.isnan(range_high):
+            range_offset = max(range_offset, abs(range_high - entry_price))
+        stop_offset = max(min_stop_offset, atr_offset, ema_offset, range_offset)
+        stop_price = entry_price - stop_offset if side == "Buy" else entry_price + stop_offset
+        if stop_price <= 0:
             return None
 
         timestamp = features.index[-1]
-        reason = "long breakout" if side == "Buy" else "short breakdown"
         return Signal(
             timestamp=timestamp,
             side=side,
@@ -166,6 +313,7 @@ class Scalper:
             stop_price=stop_price,
             atr=atr_val,
             reason=reason,
+            fast_market=fast_market,
         )
 
     def _build_signal_prices(
@@ -179,18 +327,6 @@ class Scalper:
         entry_price = close_price
         buffer_pct = max(self.cfg.entry_buffer_pct, 0.0)
         stop_pct = self.cfg.stop_loss_pct
-
-        if long_candidate and short_candidate:
-            if self.cfg.use_trend_filter:
-                short_candidate = False
-            else:
-                # prefer stronger breakout distance
-                long_move = close_price - (close_price * (1 - buffer_pct))
-                short_move = (close_price * (1 + buffer_pct)) - close_price
-                if long_move >= short_move:
-                    short_candidate = False
-                else:
-                    long_candidate = False
 
         if long_candidate:
             if buffer_pct > 0:
