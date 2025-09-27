@@ -22,7 +22,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "fieldConfig": {
         "defaults": {
@@ -69,7 +69,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_total_return_pct",
           "interval": "",
@@ -83,7 +83,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "fieldConfig": {
         "defaults": {
@@ -133,7 +133,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_account_equity",
           "interval": "",
@@ -143,7 +143,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_realized_pnl_total",
           "interval": "",
@@ -157,7 +157,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "fieldConfig": {
         "defaults": {
@@ -200,7 +200,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_win_rate",
           "interval": "",
@@ -214,7 +214,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "gridPos": {
         "h": 8,
@@ -240,7 +240,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_position_qty",
           "interval": "",
@@ -254,7 +254,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "gridPos": {
         "h": 8,
@@ -280,7 +280,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_current_return_pct",
           "interval": "",
@@ -294,7 +294,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "fieldConfig": {
         "defaults": {
@@ -336,7 +336,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_recent_trade_pnl",
           "format": "table",
@@ -346,7 +346,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_recent_trade_side",
           "format": "table",
@@ -356,7 +356,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_recent_trade_qty",
           "format": "table",
@@ -366,7 +366,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_recent_trade_r",
           "format": "table",
@@ -376,7 +376,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_recent_trade_timestamp",
           "format": "table",
@@ -445,7 +445,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "fieldConfig": {
         "defaults": {
@@ -504,7 +504,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "time() - coin_trader_last_loop_ts",
           "interval": "",
@@ -518,7 +518,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "fieldConfig": {
         "defaults": {
@@ -573,7 +573,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_last_candle_ts * 1000",
           "interval": "",
@@ -587,7 +587,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "fieldConfig": {
         "defaults": {
@@ -642,7 +642,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_last_signal_ts * 1000",
           "interval": "",
@@ -656,7 +656,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "fieldConfig": {
         "defaults": {
@@ -715,7 +715,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_last_signal_side",
           "interval": "",
@@ -729,7 +729,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "fieldConfig": {
         "defaults": {
@@ -773,7 +773,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "increase(coin_trader_errors_total[5m])",
           "interval": "",
@@ -787,7 +787,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "fieldConfig": {
         "defaults": {
@@ -833,7 +833,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_trades_total",
           "interval": "",
@@ -847,7 +847,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "fieldConfig": {
         "defaults": {
@@ -893,7 +893,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_wins_total",
           "interval": "",
@@ -907,7 +907,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "deybl4q5vttz4f"
+        "uid": "dezb267tz2y2ob"
       },
       "fieldConfig": {
         "defaults": {
@@ -953,7 +953,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "deybl4q5vttz4f"
+            "uid": "dezb267tz2y2ob"
           },
           "expr": "coin_trader_losses_total",
           "interval": "",
