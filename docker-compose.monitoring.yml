@@ -6,7 +6,7 @@ services:
     container_name: coin-trader
     env_file:
       - .env
-    command: ["--mode=paper", "--symbol=BTCUSDT", "--config=configs/params.yaml"]
+    command: ["--mode=paper", "--symbol=BTCUSDT", "--config=configs/params_btc_ultra.yaml"]
     ports:
       - "9000:9000"
     restart: unless-stopped
