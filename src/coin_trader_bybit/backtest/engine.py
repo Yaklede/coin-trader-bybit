@@ -94,6 +94,7 @@ class Backtester:
         *,
         initial_equity: float = 10_000.0,
         contract_value: float = 1.0,
+        live_like: bool = False,
     ) -> None:
         self.cfg = cfg
         self.initial_equity = initial_equity
@@ -103,6 +104,9 @@ class Backtester:
         self.slippage_rate = cfg.execution.slippage_bps / 10_000.0
         self.maker_fee_rate = cfg.execution.maker_fee_bps / 10_000.0
         self.post_only = cfg.execution.post_only
+        # When True, recompute features on a sliding window of the last N raw candles,
+        # where N = cfg.execution.lookback_candles, to emulate live runtime.
+        self.live_like = live_like
 
     def run(self, data: pd.DataFrame) -> BacktestReport:
         if not isinstance(data.index, pd.DatetimeIndex):
@@ -110,10 +114,20 @@ class Backtester:
         if data.empty:
             raise ValueError("data cannot be empty")
 
-        features = self.strategy.compute_features(data)
-        features = features.dropna(subset=["atr", "volume_ma"]).copy()
-        if features.empty:
-            raise ValueError("insufficient data after applying indicators")
+        if not self.live_like:
+            features = self.strategy.compute_features(data)
+            features = features.dropna(subset=["atr", "volume_ma"]).copy()
+            if features.empty:
+                raise ValueError("insufficient data after applying indicators")
+            feature_index = list(features.index)
+        else:
+            # Build a timeline on the entry timeframe by computing features once
+            # (to get resampled timestamps), then drive the loop with those timestamps.
+            base_features = self.strategy.compute_features(data)
+            base_features = base_features.dropna(subset=["atr", "volume_ma"]).copy()
+            if base_features.empty:
+                raise ValueError("insufficient data after applying indicators")
+            feature_index = list(base_features.index)
 
         risk_cfg = self.cfg.risk
         daily_limit = risk_cfg.daily_max_trades or 0
@@ -125,13 +139,14 @@ class Backtester:
 
         trades: List[BacktestTrade] = []
         equity = self.initial_equity
-        equity_points: list[tuple[pd.Timestamp, float]] = [(features.index[0], equity)]
+        first_ts = feature_index[0]
+        equity_points: list[tuple[pd.Timestamp, float]] = [(first_ts, equity)]
         position: Optional[PositionState] = None
         last_open_ts: Optional[pd.Timestamp] = None
         win_streak = 0
         loss_streak = 0
 
-        feature_items = list(features.iterrows())
+        feature_items: Iterable[tuple[int, pd.Timestamp]] = list(enumerate(feature_index))
         def _risk_multiplier(row: pd.Series, reason: str, side: str) -> float:
             cfgs = self.cfg.strategy
             m = max(cfgs.risk_mult_base, 0.0)
@@ -156,7 +171,22 @@ class Backtester:
             return min(max(m, 0.1), cap)
 
         last_equity_ts: Optional[pd.Timestamp] = equity_points[-1][0] if equity_points else None
-        for idx, (timestamp, row) in enumerate(feature_items):
+        for idx, timestamp in feature_items:
+            # Compute the features for this step
+            if not self.live_like:
+                row = features.iloc[idx]
+            else:
+                lookback = max(int(self.cfg.execution.lookback_candles), 100)
+                # Select last N raw candles up to current timestamp
+                window = data.loc[: timestamp].tail(lookback)
+                if window.empty:
+                    continue
+                step_features = self.strategy.compute_features(window)
+                step_features = step_features.dropna(subset=["atr", "volume_ma"]).copy()
+                if step_features.empty or timestamp not in step_features.index:
+                    continue
+                row = step_features.loc[timestamp]
+
             atr = float(row["atr"])
             if np.isnan(atr) or atr <= 0:
                 continue
@@ -168,7 +198,10 @@ class Backtester:
                 daily_gain_hit[trade_day] = False
 
             if position is None:
-                window = features.iloc[: idx + 1]
+                if not self.live_like:
+                    window = features.iloc[: idx + 1]
+                else:
+                    window = step_features
                 signal = self.strategy.generate_signal(window)
                 if signal is not None and signal.timestamp == timestamp:
                     # Cooldown between entries based on strategy.signal_cooldown_minutes

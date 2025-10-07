@@ -28,6 +28,14 @@ def _parse_args() -> argparse.Namespace:
         required=True,
         help="CSV containing timestamp, open, high, low, close, volume columns",
     )
+    parser.add_argument(
+        "--live-like",
+        action="store_true",
+        help=(
+            "Recompute indicators on a sliding window using execution.lookback_candles, "
+            "to emulate live runtime behaviour."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -84,7 +92,7 @@ def main() -> None:
     cfg = _load_config(config_path)
     candles = _load_data(data_path)
 
-    backtester = engine.Backtester(cfg)
+    backtester = engine.Backtester(cfg, live_like=args.live_like)
     restore_size = _safe_size_patch()
     try:
         report = backtester.run(candles)
