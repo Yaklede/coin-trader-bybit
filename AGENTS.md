@@ -1,40 +1,41 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Source lives in `src/coin_trader_bybit/`: `exchange/bybit.py` handles API adapters, `strategy/scalper.py` drives signals, and `app.py` exposes the CLI.
-- Runtime parameters sit in `configs/params.yaml`; seed `.env` from `.env.example` and never commit live keys.
-- Tests mirror the package under `tests/`, transient OHLCV exports belong in git-ignored `data/`, and docs stay in `docs/`.
-- Read `ai_trading_plan.yaml` before adjusting automation, risk, or alerting flows.
+- Source: `src/coin_trader_bybit/` (`exchange/bybit.py` adapters, `strategy/scalper.py` signals, `app.py` CLI).
+- Config: `configs/params.yaml` (presets: `params_btc_ultra.yaml`, `params_btc_growth.yaml`, `params_swing.yaml`).
+- Tests: `tests/` mirror package layout; temp data in git‑ignored `data/`; docs in `docs/`.
+- Read `ai_trading_plan.yaml` before changing automation, risk, or alerting.
 
 ## Build, Test, and Development Commands
-- `python -m venv .venv && source .venv/bin/activate` — create the Python 3.11 environment.
-- `pip install -r requirements.txt` — install runtime and dev dependencies.
-- `python -m coin_trader_bybit.app --mode=paper --symbol=BTCUSDT --config=configs/params.yaml` — run the paper-trading CLI.
-- `ruff check .`, `black .`, `isort .` — lint, format, and sort imports before commits.
-- `pytest --cov=src --cov-report=term-missing` — run the suite and confirm ≥85% coverage on touched modules.
+- `python -m venv .venv && source .venv/bin/activate` — create/activate Python env.
+- `pip install -r requirements.txt` — install runtime + dev deps.
+- Run CLI (paper): `python -m coin_trader_bybit.app --mode=paper --symbol=BTCUSDT --config=configs/params.yaml`.
+- Backtest: `PYTHONPATH=src python scripts/run_backtest.py --config configs/params_btc_ultra.yaml --data data/btcusdt_1m_YYYYMMDD_YYYYMMDD.csv`.
+- Lint/format: `ruff check .`, `black .`, `isort .`.
+- Tests: `pytest --cov=src --cov-report=term-missing` (≥85% coverage on touched modules).
 
 ## Coding Style & Naming Conventions
-- Use 4-space indentation, keep lines ≤100 characters, and type-hint public functions.
-- Stick to `snake_case` for functions and variables, `PascalCase` for classes, `UPPER_SNAKE_CASE` for constants.
-- Keep docstrings concise and avoid side effects at import time.
+- 4‑space indent, lines ≤100 chars, type‑hint public APIs.
+- Naming: `snake_case` (func/vars), `PascalCase` (classes), `UPPER_SNAKE_CASE` (constants).
+- Keep imports side‑effect free; concise docstrings with intent and units.
 
 ## Testing Guidelines
-- Place new tests in `tests/test_<module>.py` to mirror source layout (e.g., strategy updates → `tests/test_strategy/`).
-- Exercise fee, slippage, and risk controls whenever trade logic changes; rerun paper trading after major edits.
-- Investigate local test failures before pushing and only commit deterministic fixtures or data.
+- Place tests in `tests/test_<module>.py` (e.g., strategy → `tests/strategy/`).
+- Validate fees, slippage, and risk controls when logic changes; prefer deterministic fixtures.
+- Run paper trading after major edits to sanity‑check execution.
 
 ## Commit & Pull Request Guidelines
-- Use Conventional Commit subjects ≤72 characters (e.g., `fix: tighten risk limits`) with bodies focused on rationale and impact.
-- Reference linked issues, note trade-offs, and attach logs or screenshots for behavior changes.
-- Ensure CI (lint, type checks, coverage) passes before requesting review and call out intentional skips.
+- Conventional Commits ≤72 chars (e.g., `feat: add regime gate`).
+- PRs include rationale, trade‑offs, linked issues, and logs/screenshots for behavior changes.
+- CI must pass (lint, type, coverage). Call out intentional skips.
 
 ## Security & Configuration Tips
-- Default to Bybit testnet; require explicit opt-in for live trading and mark live orders `reduceOnly`.
-- Rotate API keys on anomalies, redact secrets from logs/screenshots, and keep environment variables in `.env`.
+- Default to Bybit testnet; explicit opt‑in for live. Mark live exits `reduceOnly`.
+- Seed `.env` from `.env.example`; never commit live keys. Rotate on anomalies; redact secrets in logs.
 
-## Agent-Specific Instructions
-- Prioritize tasks on data ingestion, walk-forward validation, risk safeguards, and alerting before new features.
-- Halt automation if daily loss hits -2R or any trade exceeds 0.5% risk, restoring controls before resuming.
+## Agent‑Specific Instructions
+- Prioritize data ingestion, walk‑forward validation, risk safeguards, and alerting before new features.
+- Halt automation if daily loss hits −2R or any trade risks >0.5%; restore controls before resuming.
 
 ## Current Findings & TODOs (2024-01–2025-09)
 - Baseline backtests on BTCUSDT 1m show negative expectancy: PF ≈0.1–0.45, 평균 R < 0, -1R 손절 빈번. 필터를 완화하면 노이즈가 늘고, 강화하면 거래가 과소로 변함.
